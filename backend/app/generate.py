@@ -84,6 +84,25 @@ def call_openai(settings: Settings, idea: str, mode: GenerateMode) -> str:
     return content
 
 
+def _openai_user_message(exc: Exception) -> str:
+    try:
+        from openai import APIStatusError, AuthenticationError, RateLimitError
+    except ImportError:
+        return "Could not reach the planner"
+
+    if isinstance(exc, AuthenticationError):
+        return "The OpenAI API key was rejected. Check OPENAI_API_KEY."
+    if isinstance(exc, RateLimitError):
+        body = getattr(exc, "body", None) or {}
+        code = body.get("code") if isinstance(body, dict) else None
+        if code in {"insufficient_quota", "credit_balance_exhausted"} or "credit" in str(exc).lower():
+            return "OpenAI has no credits left. Add billing at platform.openai.com."
+        return "OpenAI rate-limited the request. Wait a moment and try again."
+    if isinstance(exc, APIStatusError):
+        return "OpenAI could not complete the request. Try again shortly."
+    return "Could not reach the planner"
+
+
 def generate_plan(settings: Settings, idea: str, mode: GenerateMode) -> dict:
     from app.errors import HttpError
 
@@ -92,7 +111,6 @@ def generate_plan(settings: Settings, idea: str, mode: GenerateMode) -> dict:
         try:
             raw = call_openai(settings, idea, mode)
             plan = parse_plan_payload(raw, mode)
-            payload = plan.model_dump(by_alias=True)
             nodes = auto_layout(
                 [node.model_dump() for node in plan.nodes],
                 [{"from": edge.from_key, "to": edge.to} for edge in plan.edges],
@@ -113,7 +131,6 @@ def generate_plan(settings: Settings, idea: str, mode: GenerateMode) -> dict:
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             last_error = str(exc)
             continue
-        except Exception:
-            last_error = "Could not reach the planner"
-            continue
+        except Exception as exc:
+            raise HttpError(_openai_user_message(exc), 502) from exc
     raise HttpError(f"{last_error}. Try again with a shorter idea.", 422)

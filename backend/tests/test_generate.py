@@ -62,3 +62,21 @@ def test_generate_plan_retries_then_fails():
         with pytest.raises(HttpError) as exc:
             generate_plan(settings, "bad", "quick")
     assert exc.value.status == 422
+
+
+def test_generate_plan_surfaces_openai_quota_error():
+    from openai import RateLimitError
+    import httpx
+
+    settings = Settings(openai_api_key="sk-test")
+    response = httpx.Response(429, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+    err = RateLimitError(
+        "You have no credits remaining.",
+        response=response,
+        body={"message": "You have no credits remaining.", "code": "insufficient_quota"},
+    )
+    with patch("app.generate.call_openai", side_effect=err):
+        with pytest.raises(HttpError) as exc:
+            generate_plan(settings, "Plant a garden", "quick")
+    assert exc.value.status == 502
+    assert "credits" in exc.value.message.lower()
