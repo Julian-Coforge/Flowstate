@@ -92,6 +92,45 @@ def test_link_rejects_self():
     assert response.status_code == 400
 
 
+def test_todo_keeps_colour():
+    global current
+    current = USER_A
+    todo = client.post("/api/todos", json={"text": "Paint the hall", "color": "blue"}).json()
+    assert todo["color"] == "blue"
+    updated = client.patch(f"/api/todos/{todo['id']}", json={"color": "teal"}).json()
+    assert updated["color"] == "teal"
+
+
+def test_node_due_date_and_calendar():
+    global current
+    current = USER_A
+    project = client.post("/api/projects", json={"title": "Trip", "description": ""}).json()
+    node = client.post("/api/nodes", json={"projectId": project["id"], "title": "Pack", "x": 0, "y": 0, "dueDate": "2026-10-20"}).json()
+    assert node["dueDate"] == "2026-10-20"
+    calendar = client.get("/api/calendar").json()
+    assert any(item["id"] == node["id"] for item in calendar["steps"])
+
+
+def test_duplicate_and_layout():
+    global current
+    current = USER_A
+    project = client.post("/api/projects", json={"title": "Source", "description": "Keep"}).json()
+    first = client.post("/api/nodes", json={"projectId": project["id"], "title": "A", "x": 10, "y": 10}).json()
+    second = client.post("/api/nodes", json={"projectId": project["id"], "title": "B", "x": 40, "y": 80}).json()
+    edge = client.post(
+        "/api/edges",
+        json={"projectId": project["id"], "sourceNodeId": first["id"], "targetNodeId": second["id"], "sourceHandle": "right", "targetHandle": "left"},
+    ).json()
+    assert edge["sourceHandle"] == "right"
+    laid = client.post(f"/api/projects/{project['id']}/layout").json()
+    assert len(laid["nodes"]) == 2
+    copy = client.post(f"/api/projects/{project['id']}/duplicate").json()
+    assert copy["title"] == "Source (copy)"
+    bundle = client.get(f"/api/projects/{copy['id']}").json()
+    assert len(bundle["nodes"]) == 2
+    assert len(bundle["edges"]) == 1
+
+
 def test_complete_recurring_spawns_next():
     global current
     current = USER_A

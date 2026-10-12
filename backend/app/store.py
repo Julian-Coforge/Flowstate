@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.errors import HttpError
 from app.models import ChecklistItem, Edge, Node, Project, Todo
-from app.rules import can_link, next_occurrence, progress as progress_of, today_iso
+from app.rules import auto_layout, can_link, infer_handles, next_occurrence, progress as progress_of, today_iso
 
 
 def _uid(value: str) -> uuid.UUID:
@@ -47,6 +47,7 @@ def serialize_node(node: Node) -> dict:
         "status": node.status,
         "x": node.x,
         "y": node.y,
+        "dueDate": node.due_date.isoformat() if node.due_date else None,
         "checklist": [serialize_check(item) for item in checks],
     }
 
@@ -57,6 +58,8 @@ def serialize_edge(edge: Edge) -> dict:
         "projectId": str(edge.project_id),
         "sourceNodeId": str(edge.source_node_id),
         "targetNodeId": str(edge.target_node_id),
+        "sourceHandle": edge.source_handle,
+        "targetHandle": edge.target_handle,
     }
 
 
@@ -69,6 +72,7 @@ def serialize_todo(todo: Todo, project_title: str | None) -> dict:
         "done": todo.done,
         "dueDate": todo.due_date.isoformat() if todo.due_date else None,
         "recurrence": todo.recurrence or "none",
+        "color": todo.color or "none",
         "projectTitle": project_title,
     }
 
@@ -172,18 +176,35 @@ def delete_project(db: Session, user_id: str, project_id: str) -> None:
     db.delete(project)
 
 
-def create_node(db: Session, user_id: str, project_id: str, title: str, x: float, y: float) -> dict:
+def create_node(
+    db: Session,
+    user_id: str,
+    project_id: str,
+    title: str,
+    x: float,
+    y: float,
+    node_id: str | None = None,
+    description: str = "",
+    importance: str = "medium",
+    notes: str = "",
+    status: str = "todo",
+    due_date: str | None = None,
+) -> dict:
     owned_project(db, user_id, project_id)
+    nid = _uid(node_id) if node_id else uuid.uuid4()
+    if node_id and db.get(Node, nid):
+        raise HttpError("That step already exists", 409)
     node = Node(
-        id=uuid.uuid4(),
+        id=nid,
         project_id=_uid(project_id),
         title=title,
-        description="",
-        importance="medium",
-        notes="",
-        status="todo",
+        description=description or "",
+        importance=importance or "medium",
+        notes=notes or "",
+        status=status or "todo",
         x=x,
         y=y,
+        due_date=_date(due_date),
     )
     db.add(node)
     db.flush()
@@ -206,6 +227,8 @@ def update_node(db: Session, user_id: str, node_id: str, patch: dict) -> dict:
     for key, column in mapping.items():
         if key in patch and patch[key] is not None:
             setattr(node, column, patch[key])
+    if "dueDate" in patch:
+        node.due_date = _date(patch["dueDate"])
     db.flush()
     db.refresh(node)
     return serialize_node(node) if node.checklist is not None else {**serialize_node(node), "checklist": []}
@@ -216,7 +239,16 @@ def delete_node(db: Session, user_id: str, node_id: str) -> None:
     db.delete(node)
 
 
-def create_edge(db: Session, user_id: str, project_id: str, source_id: str, target_id: str) -> dict:
+def create_edge(
+    db: Session,
+    user_id: str,
+    project_id: str,
+    source_id: str,
+    target_id: str,
+    source_handle: str | None = None,
+    target_handle: str | None = None,
+    edge_id: str | None = None,
+) -> dict:
     owned_project(db, user_id, project_id)
     nodes = list(db.scalars(select(Node).where(Node.project_id == _uid(project_id))))
     existing = list(db.scalars(select(Edge).where(Edge.project_id == _uid(project_id))))
@@ -228,11 +260,22 @@ def create_edge(db: Session, user_id: str, project_id: str, source_id: str, targ
     )
     if not check.get("ok"):
         raise HttpError(check["error"], 400)
+    eid = _uid(edge_id) if edge_id else uuid.uuid4()
+    by_id = {str(node.id): node for node in nodes}
+    source_node = by_id.get(source_id)
+    target_node = by_id.get(target_id)
+    if not source_handle or not target_handle:
+        if source_node and target_node:
+            inferred = infer_handles(source_node.x, source_node.y, target_node.x, target_node.y)
+            source_handle = source_handle or inferred[0]
+            target_handle = target_handle or inferred[1]
     edge = Edge(
-        id=uuid.uuid4(),
+        id=eid,
         project_id=_uid(project_id),
         source_node_id=_uid(source_id),
         target_node_id=_uid(target_id),
+        source_handle=source_handle,
+        target_handle=target_handle,
     )
     db.add(edge)
     db.flush()
@@ -270,6 +313,7 @@ def create_todo(
     node_id: str | None,
     due_date: str | None,
     recurrence: str = "none",
+    color: str = "none",
 ) -> dict:
     if project_id:
         owned_project(db, user_id, project_id)
@@ -284,6 +328,7 @@ def create_todo(
         done=False,
         due_date=_date(due_date),
         recurrence=recurrence or "none",
+        color=color or "none",
     )
     db.add(todo)
     db.flush()
@@ -316,6 +361,8 @@ def update_todo(db: Session, user_id: str, todo_id: str, patch: dict) -> dict:
         todo.due_date = _date(patch["dueDate"])
     if "recurrence" in patch and patch["recurrence"] is not None:
         todo.recurrence = patch["recurrence"]
+    if "color" in patch and patch["color"] is not None:
+        todo.color = patch["color"]
     if "done" in patch and patch["done"] is not None:
         todo.done = patch["done"]
     spawned = None
@@ -335,6 +382,7 @@ def update_todo(db: Session, user_id: str, todo_id: str, patch: dict) -> dict:
                 done=False,
                 due_date=_date(nxt),
                 recurrence=todo.recurrence,
+                color=todo.color or "none",
             )
             db.add(spawned)
     db.flush()
@@ -413,13 +461,21 @@ def insert_generated_plan(db: Session, user_id: str, project_id: str, nodes: lis
             if not cleaned:
                 continue
             db.add(ChecklistItem(id=uuid.uuid4(), node_id=row.id, text=cleaned[:300], done=False, position=index))
+    by_key = {node["key"]: node for node in nodes}
     for edge in edges:
+        source = by_key.get(edge["from"])
+        target = by_key.get(edge["to"])
+        source_handle = target_handle = None
+        if source and target:
+            source_handle, target_handle = infer_handles(source["x"], source["y"], target["x"], target["y"])
         db.add(
             Edge(
                 id=uuid.uuid4(),
                 project_id=_uid(project_id),
                 source_node_id=key_to_id[edge["from"]],
                 target_node_id=key_to_id[edge["to"]],
+                source_handle=source_handle,
+                target_handle=target_handle,
             )
         )
     for todo in todos:
@@ -434,7 +490,154 @@ def insert_generated_plan(db: Session, user_id: str, project_id: str, nodes: lis
                 done=False,
                 due_date=None,
                 recurrence="none",
+                color="none",
             )
         )
     db.flush()
     return get_project_bundle(db, user_id, project_id)
+
+
+def list_calendar(db: Session, user_id: str) -> dict:
+    todos = list_todos(db, user_id)
+    uid = _uid(user_id)
+    projects = {project.id: project for project in db.scalars(select(Project).where(Project.user_id == uid))}
+    nodes = list(
+        db.scalars(select(Node).where(Node.project_id.in_(list(projects.keys())), Node.due_date.isnot(None)))
+    ) if projects else []
+    steps = [
+        {
+            "id": str(node.id),
+            "projectId": str(node.project_id),
+            "projectTitle": projects[node.project_id].title if node.project_id in projects else None,
+            "title": node.title,
+            "status": node.status,
+            "dueDate": node.due_date.isoformat() if node.due_date else None,
+            "importance": node.importance,
+        }
+        for node in nodes
+    ]
+    return {"todos": todos, "steps": steps}
+
+
+def update_node_positions(db: Session, user_id: str, project_id: str, positions: list[dict]) -> dict:
+    owned_project(db, user_id, project_id)
+    wanted = {_uid(item["id"]): item for item in positions}
+    nodes = list(db.scalars(select(Node).where(Node.project_id == _uid(project_id), Node.id.in_(list(wanted.keys())))))
+    for node in nodes:
+        item = wanted[node.id]
+        node.x = item["x"]
+        node.y = item["y"]
+    db.flush()
+    return get_project_bundle(db, user_id, project_id)
+
+
+def layout_project(db: Session, user_id: str, project_id: str) -> dict:
+    owned_project(db, user_id, project_id)
+    nodes = list(db.scalars(select(Node).where(Node.project_id == _uid(project_id))))
+    edges = list(db.scalars(select(Edge).where(Edge.project_id == _uid(project_id))))
+    laid = auto_layout(
+        [{"key": str(node.id), "title": node.title} for node in nodes],
+        [{"from": str(edge.source_node_id), "to": str(edge.target_node_id)} for edge in edges],
+    )
+    by_key = {item["key"]: item for item in laid}
+    for node in nodes:
+        pos = by_key.get(str(node.id))
+        if pos:
+            node.x = pos["x"]
+            node.y = pos["y"]
+    node_by_id = {str(node.id): node for node in nodes}
+    for edge in edges:
+        source = node_by_id.get(str(edge.source_node_id))
+        target = node_by_id.get(str(edge.target_node_id))
+        if source and target:
+            edge.source_handle, edge.target_handle = infer_handles(source.x, source.y, target.x, target.y)
+    db.flush()
+    return get_project_bundle(db, user_id, project_id)
+
+
+def duplicate_project(db: Session, user_id: str, project_id: str) -> dict:
+    bundle_project = owned_project(db, user_id, project_id)
+    nodes = list(
+        db.scalars(select(Node).where(Node.project_id == bundle_project.id).options(selectinload(Node.checklist)))
+    )
+    edges = list(db.scalars(select(Edge).where(Edge.project_id == bundle_project.id)))
+    todos = list(db.scalars(select(Todo).where(Todo.project_id == bundle_project.id)))
+    new_id = uuid.uuid4()
+    copy = Project(
+        id=new_id,
+        user_id=_uid(user_id),
+        title=f"{bundle_project.title} (copy)",
+        description=bundle_project.description,
+        status="active",
+        created_at=int(time.time() * 1000),
+    )
+    db.add(copy)
+    db.flush()
+    id_map: dict[uuid.UUID, uuid.UUID] = {}
+    for node in nodes:
+        cloned_id = uuid.uuid4()
+        id_map[node.id] = cloned_id
+        db.add(
+            Node(
+                id=cloned_id,
+                project_id=new_id,
+                title=node.title,
+                description=node.description,
+                importance=node.importance,
+                notes=node.notes,
+                status=node.status,
+                x=node.x,
+                y=node.y,
+                due_date=node.due_date,
+            )
+        )
+        db.flush()
+        for item in node.checklist:
+            db.add(
+                ChecklistItem(
+                    id=uuid.uuid4(),
+                    node_id=cloned_id,
+                    text=item.text,
+                    done=item.done,
+                    position=item.position,
+                )
+            )
+    for edge in edges:
+        db.add(
+            Edge(
+                id=uuid.uuid4(),
+                project_id=new_id,
+                source_node_id=id_map[edge.source_node_id],
+                target_node_id=id_map[edge.target_node_id],
+                source_handle=edge.source_handle,
+                target_handle=edge.target_handle,
+            )
+        )
+    for todo in todos:
+        db.add(
+            Todo(
+                id=uuid.uuid4(),
+                user_id=_uid(user_id),
+                project_id=new_id,
+                node_id=id_map.get(todo.node_id) if todo.node_id else None,
+                text=todo.text,
+                done=todo.done,
+                due_date=todo.due_date,
+                recurrence=todo.recurrence,
+                color=todo.color or "none",
+            )
+        )
+    db.flush()
+    summaries = list_projects(db, user_id, "")
+    for item in summaries:
+        if item["id"] == str(new_id):
+            return item
+    return {
+        "id": str(new_id),
+        "title": copy.title,
+        "description": copy.description,
+        "status": copy.status,
+        "createdAt": copy.created_at,
+        "progress": progress_of(nodes),
+        "openTasks": 0,
+    }

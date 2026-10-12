@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 Importance = Literal["low", "medium", "high"]
 NodeStatus = Literal["todo", "doing", "done"]
 Recurrence = Literal["none", "daily", "weekly", "monthly"]
+TaskColor = Literal["none", "blue", "green", "amber", "rose", "violet", "teal"]
 GenerateMode = Literal["quick", "thinking"]
 
 
@@ -18,17 +19,36 @@ class ProjectCreate(BaseModel):
         return value.strip()
 
 
+def parse_optional_date(value: str | None) -> str | None:
+    if value is None or value == "":
+        return None
+    if len(value) != 10 or value[4] != "-" or value[7] != "-":
+        raise ValueError("Use a real date")
+    return value
+
+
 class NodeCreate(BaseModel):
     projectId: str
     title: str = Field(default="New step", max_length=120)
     x: float
     y: float
+    id: str | None = None
+    description: str = Field(default="", max_length=2000)
+    importance: Importance = "medium"
+    notes: str = Field(default="", max_length=20000)
+    status: NodeStatus = "todo"
+    dueDate: str | None = None
 
     @field_validator("title")
     @classmethod
     def strip_title(cls, value: str) -> str:
         cleaned = value.strip()
         return cleaned or "New step"
+
+    @field_validator("dueDate")
+    @classmethod
+    def date_format(cls, value: str | None) -> str | None:
+        return parse_optional_date(value)
 
 
 class NodePatch(BaseModel):
@@ -39,18 +59,40 @@ class NodePatch(BaseModel):
     status: NodeStatus | None = None
     x: float | None = None
     y: float | None = None
+    dueDate: str | None = None
+
+    @field_validator("dueDate")
+    @classmethod
+    def date_format(cls, value: str | None) -> str | None:
+        return parse_optional_date(value)
 
     @model_validator(mode="after")
     def not_empty(self):
-        if all(value is None for value in self.model_dump().values()):
+        if not self.model_fields_set:
             raise ValueError("Nothing to update")
         return self
+
+
+HandleName = Literal["top", "right", "bottom", "left"]
 
 
 class EdgeCreate(BaseModel):
     projectId: str
     sourceNodeId: str
     targetNodeId: str
+    id: str | None = None
+    sourceHandle: HandleName | None = None
+    targetHandle: HandleName | None = None
+
+
+class PositionItem(BaseModel):
+    id: str
+    x: float
+    y: float
+
+
+class NodePositionsBody(BaseModel):
+    positions: list[PositionItem]
 
 
 class TodoCreate(BaseModel):
@@ -59,6 +101,7 @@ class TodoCreate(BaseModel):
     nodeId: str | None = None
     dueDate: str | None = None
     recurrence: Recurrence = "none"
+    color: TaskColor = "none"
 
     @field_validator("text")
     @classmethod
@@ -68,11 +111,7 @@ class TodoCreate(BaseModel):
     @field_validator("dueDate")
     @classmethod
     def date_format(cls, value: str | None) -> str | None:
-        if value is None or value == "":
-            return None
-        if len(value) != 10 or value[4] != "-" or value[7] != "-":
-            raise ValueError("Use a real date")
-        return value
+        return parse_optional_date(value)
 
 
 class TodoPatch(BaseModel):
@@ -82,6 +121,7 @@ class TodoPatch(BaseModel):
     projectId: str | None = None
     recurrence: Recurrence | None = None
     nodeId: str | None = None
+    color: TaskColor | None = None
 
     @model_validator(mode="after")
     def not_empty(self):

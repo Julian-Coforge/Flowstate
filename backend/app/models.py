@@ -36,6 +36,7 @@ class Node(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="todo")
     x: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     y: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="nodes")
     checklist: Mapped[list["ChecklistItem"]] = relationship(back_populates="node", cascade="all, delete-orphan")
@@ -49,6 +50,8 @@ class Edge(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
     source_node_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"))
     target_node_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("nodes.id", ondelete="CASCADE"))
+    source_handle: Mapped[str | None] = mapped_column(String, nullable=True)
+    target_handle: Mapped[str | None] = mapped_column(String, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="edges")
 
@@ -76,5 +79,6 @@ class Todo(Base):
     done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     recurrence: Mapped[str] = mapped_column(String, nullable=False, default="none")
+    color: Mapped[str] = mapped_column(String, nullable=False, default="none")
 
     project: Mapped[Project | None] = relationship(back_populates="todos")

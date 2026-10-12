@@ -37,6 +37,7 @@ export const nodePatchSchema = z
     status: z.enum(["todo", "doing", "done"]).optional(),
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
+    dueDate: dateField.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "Nothing to update" });
 
@@ -44,9 +45,12 @@ export const edgeCreateSchema = z.object({
   projectId: z.string().min(1),
   sourceNodeId: z.string().min(1),
   targetNodeId: z.string().min(1),
+  sourceHandle: z.enum(["top", "right", "bottom", "left"]).nullable().optional(),
+  targetHandle: z.enum(["top", "right", "bottom", "left"]).nullable().optional(),
 });
 
 export const recurrenceSchema = z.enum(["none", "daily", "weekly", "monthly"]);
+export const taskColorSchema = z.enum(["none", "blue", "green", "amber", "rose", "violet", "teal"]);
 
 export const todoCreateSchema = z.object({
   text: z.string().trim().min(1, "Write the task").max(300),
@@ -54,6 +58,7 @@ export const todoCreateSchema = z.object({
   nodeId: z.string().min(1).nullable().optional(),
   dueDate: dateField.optional(),
   recurrence: recurrenceSchema.optional().default("none"),
+  color: taskColorSchema.optional().default("none"),
 });
 
 export const todoPatchSchema = z
@@ -63,6 +68,7 @@ export const todoPatchSchema = z
     dueDate: dateField.optional(),
     projectId: z.string().min(1).nullable().optional(),
     recurrence: recurrenceSchema.optional(),
+    color: taskColorSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "Nothing to update" });
 

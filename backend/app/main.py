@@ -18,6 +18,7 @@ from app.schemas import (
     GenerateBody,
     NodeCreate,
     NodePatch,
+    NodePositionsBody,
     ProjectCreate,
     TodoCreate,
     TodoPatch,
@@ -81,6 +82,16 @@ def remove_project(project_id: str, user: CurrentUser = Depends(get_current_user
     return {"ok": True}
 
 
+@app.post("/api/projects/{project_id}/duplicate", status_code=201)
+def duplicate_project(project_id: str, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return store.duplicate_project(db, user.id, project_id)
+
+
+@app.post("/api/projects/{project_id}/layout")
+def layout_project(project_id: str, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return store.layout_project(db, user.id, project_id)
+
+
 @app.post("/api/projects/{project_id}/generate")
 def generate(project_id: str, body: GenerateBody, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     cfg = get_settings()
@@ -94,12 +105,39 @@ def generate(project_id: str, body: GenerateBody, user: CurrentUser = Depends(ge
 
 @app.post("/api/nodes", status_code=201)
 def create_node(body: NodeCreate, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    return store.create_node(db, user.id, body.projectId, body.title, body.x, body.y)
+    return store.create_node(
+        db,
+        user.id,
+        body.projectId,
+        body.title,
+        body.x,
+        body.y,
+        body.id,
+        body.description,
+        body.importance,
+        body.notes,
+        body.status,
+        body.dueDate,
+    )
+
+
+@app.post("/api/nodes/positions")
+def node_positions(body: NodePositionsBody, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not body.positions:
+        raise HttpError("Nothing to update", 400)
+    first = store.owned_node(db, user.id, body.positions[0].id)
+    project_id = str(first.project_id)
+    return store.update_node_positions(
+        db,
+        user.id,
+        project_id,
+        [{"id": item.id, "x": item.x, "y": item.y} for item in body.positions],
+    )
 
 
 @app.patch("/api/nodes/{node_id}")
 def patch_node(node_id: str, body: NodePatch, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    return store.update_node(db, user.id, node_id, body.model_dump(exclude_none=True))
+    return store.update_node(db, user.id, node_id, body.model_dump(exclude_unset=True))
 
 
 @app.delete("/api/nodes/{node_id}")
@@ -110,7 +148,16 @@ def remove_node(node_id: str, user: CurrentUser = Depends(get_current_user), db:
 
 @app.post("/api/edges", status_code=201)
 def create_edge(body: EdgeCreate, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    return store.create_edge(db, user.id, body.projectId, body.sourceNodeId, body.targetNodeId)
+    return store.create_edge(
+        db,
+        user.id,
+        body.projectId,
+        body.sourceNodeId,
+        body.targetNodeId,
+        body.sourceHandle,
+        body.targetHandle,
+        body.id,
+    )
 
 
 @app.delete("/api/edges/{edge_id}")
@@ -124,9 +171,14 @@ def todos(projectId: str | None = None, user: CurrentUser = Depends(get_current_
     return {"todos": store.list_todos(db, user.id, projectId)}
 
 
+@app.get("/api/calendar")
+def calendar(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return store.list_calendar(db, user.id)
+
+
 @app.post("/api/todos", status_code=201)
 def create_todo(body: TodoCreate, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    return store.create_todo(db, user.id, body.text, body.projectId, body.nodeId, body.dueDate, body.recurrence)
+    return store.create_todo(db, user.id, body.text, body.projectId, body.nodeId, body.dueDate, body.recurrence, body.color)
 
 
 @app.patch("/api/todos/{todo_id}")

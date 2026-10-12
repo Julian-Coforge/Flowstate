@@ -3,15 +3,18 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import ColorPicker, { ColorDot } from "@/components/ColorPicker";
 import { RECURRENCE_LABEL } from "@/lib/labels";
 import { addDays, formatLong, isOnTodayList, isUpcoming, todayISO } from "@/lib/tasks";
-import type { ProjectSummary, Recurrence, Todo } from "@/lib/types";
+import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
 
 export default function Dashboard() {
   const [today] = useState(() => todayISO());
   const [query, setQuery] = useState("");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [steps, setSteps] = useState<CalendarStep[]>([]);
+  const [duplicating, setDuplicating] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [idea, setIdea] = useState("");
@@ -22,6 +25,7 @@ export default function Dashboard() {
   const [taskDate, setTaskDate] = useState(() => todayISO());
   const [taskProject, setTaskProject] = useState("");
   const [taskRepeat, setTaskRepeat] = useState<Recurrence>("none");
+  const [taskColor, setTaskColor] = useState<TaskColor>("none");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -45,8 +49,11 @@ export default function Dashboard() {
   }, [query]);
 
   useEffect(() => {
-    api<{ todos: Todo[] }>("/api/todos")
-      .then((data) => setTodos(data.todos))
+    api<{ todos: Todo[]; steps: CalendarStep[] }>("/api/calendar")
+      .then((data) => {
+        setTodos(data.todos);
+        setSteps(data.steps);
+      })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load tasks"));
   }, []);
 
@@ -58,6 +65,33 @@ export default function Dashboard() {
     () => (today ? todos.filter((todo) => isUpcoming(todo, today, addDays(today, 7))) : []),
     [todos, today],
   );
+  const todaySteps = useMemo(
+    () =>
+      today
+        ? steps.filter((step) => isOnTodayList({ done: step.status === "done", dueDate: step.dueDate }, today))
+        : [],
+    [steps, today],
+  );
+  const upcomingSteps = useMemo(
+    () =>
+      today
+        ? steps.filter((step) => isUpcoming({ done: step.status === "done", dueDate: step.dueDate }, today, addDays(today, 7)))
+        : [],
+    [steps, today],
+  );
+
+  async function duplicate(projectId: string) {
+    setDuplicating(projectId);
+    try {
+      const copy = await api<ProjectSummary>(`/api/projects/${projectId}/duplicate`, { method: "POST" });
+      setProjects((current) => [copy, ...current]);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not duplicate the project");
+    } finally {
+      setDuplicating(null);
+    }
+  }
 
   async function createProject(event: FormEvent) {
     event.preventDefault();
@@ -92,6 +126,7 @@ export default function Dashboard() {
           dueDate: taskDate || null,
           projectId: taskProject || null,
           recurrence: taskRepeat,
+          color: taskColor,
         }),
       });
       setTodos((current) => [todo, ...current]);
@@ -207,21 +242,27 @@ export default function Dashboard() {
             </p>
           ) : null}
           {projects.map((project) => (
-            <Link
-              key={project.id}
-              href={`/projects/${project.id}`}
-              className="rounded-lg border border-base-300 bg-base-100 p-4 transition hover:border-primary"
-            >
-              <h2 className="text-lg font-semibold">{project.title}</h2>
-              {project.description ? <p className="mt-1 line-clamp-2 text-sm text-base-content/70">{project.description}</p> : null}
-              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-base-200">
-                <div className="h-full bg-primary" style={{ width: `${project.progress.percent}%` }} />
-              </div>
-              <p className="mt-2 text-sm text-base-content/70">
-                {project.progress.percent}% · {project.progress.done} / {project.progress.total} steps
-                {project.openTasks ? ` · ${project.openTasks} open tasks` : ""}
-              </p>
-            </Link>
+            <article key={project.id} className="relative rounded-lg border border-base-300 bg-base-100 transition hover:border-primary">
+              <Link href={`/projects/${project.id}`} className="block p-4 pr-24">
+                <h2 className="text-lg font-semibold">{project.title}</h2>
+                {project.description ? <p className="mt-1 line-clamp-2 text-sm text-base-content/70">{project.description}</p> : null}
+                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-base-200">
+                  <div className="h-full bg-primary" style={{ width: `${project.progress.percent}%` }} />
+                </div>
+                <p className="mt-2 text-sm text-base-content/70">
+                  {project.progress.percent}% · {project.progress.done} / {project.progress.total} steps
+                  {project.openTasks ? ` · ${project.openTasks} open tasks` : ""}
+                </p>
+              </Link>
+              <button
+                className="btn btn-ghost btn-xs absolute right-2 top-2"
+                type="button"
+                disabled={duplicating === project.id}
+                onClick={() => void duplicate(project.id)}
+              >
+                {duplicating === project.id ? "Copying…" : "Duplicate"}
+              </button>
+            </article>
           ))}
         </div>
       </section>
@@ -255,23 +296,30 @@ export default function Dashboard() {
               </option>
             ))}
           </select>
+          <ColorPicker value={taskColor} onChange={setTaskColor} />
           <button className="btn btn-primary btn-sm" type="submit">
             Add task
           </button>
         </form>
 
         <ul className="mt-4 grid gap-2">
-          {todayTasks.length === 0 ? <li className="text-sm text-base-content/60">Nothing on today&apos;s list.</li> : null}
+          {todayTasks.length === 0 && todaySteps.length === 0 ? <li className="text-sm text-base-content/60">Nothing on today&apos;s list.</li> : null}
           {todayTasks.map((todo) => (
             <TaskRow key={todo.id} todo={todo} today={today} onToggle={toggle} />
+          ))}
+          {todaySteps.map((step) => (
+            <StepRow key={step.id} step={step} today={today} />
           ))}
         </ul>
 
         <h3 className="mt-6 text-sm font-semibold uppercase tracking-[0.12em] text-base-content/60">Coming up</h3>
         <ul className="mt-2 grid gap-2">
-          {upcoming.length === 0 ? <li className="text-sm text-base-content/60">Nothing due in the next week.</li> : null}
+          {upcoming.length === 0 && upcomingSteps.length === 0 ? <li className="text-sm text-base-content/60">Nothing due in the next week.</li> : null}
           {upcoming.map((todo) => (
             <TaskRow key={todo.id} todo={todo} today={today} onToggle={toggle} />
+          ))}
+          {upcomingSteps.map((step) => (
+            <StepRow key={step.id} step={step} today={today} />
           ))}
         </ul>
       </aside>
@@ -298,6 +346,7 @@ function TaskRow({
         onChange={() => onToggle(todo)}
         aria-label={todo.done ? `Mark ${todo.text} not done` : `Mark ${todo.text} done`}
       />
+      <ColorDot color={todo.color} />
       <span className={todo.done ? "text-base-content/50 line-through" : ""}>
         {todo.text}
         {todo.recurrence && todo.recurrence !== "none" ? (
@@ -306,6 +355,25 @@ function TaskRow({
           </span>
         ) : null}
         {todo.projectTitle ? <span className="mt-0.5 block text-xs text-base-content/50">{todo.projectTitle}</span> : null}
+        {overdue ? <span className="mt-0.5 block text-xs text-warning">Overdue</span> : null}
+      </span>
+    </li>
+  );
+}
+
+function StepRow({ step, today }: { step: CalendarStep; today: string | null }) {
+  const overdue = Boolean(today && step.dueDate && step.dueDate < today && step.status !== "done");
+  return (
+    <li className="flex items-start gap-2 text-sm">
+      <span className="mt-1.5 h-2 w-2 shrink-0 rotate-45 bg-primary" aria-hidden />
+      <span className={step.status === "done" ? "text-base-content/50 line-through" : ""}>
+        {step.title}
+        <span className="ml-1 text-xs text-primary">step</span>
+        {step.projectTitle ? (
+          <Link href={`/projects/${step.projectId}`} className="mt-0.5 block text-xs text-base-content/50 underline">
+            {step.projectTitle}
+          </Link>
+        ) : null}
         {overdue ? <span className="mt-0.5 block text-xs text-warning">Overdue</span> : null}
       </span>
     </li>

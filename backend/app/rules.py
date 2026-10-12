@@ -90,8 +90,16 @@ def auto_layout(nodes: list[dict], edges: list[dict]) -> list[dict]:
     positions = {}
     for layer, layer_keys in layers.items():
         for index, key in enumerate(layer_keys):
-            positions[key] = {"x": 80 + layer * 260, "y": 80 + index * 140}
+            positions[key] = {"x": 80 + layer * 300, "y": 80 + index * 170}
     laid_out = []
     for node in nodes:
         laid_out.append({**node, **positions.get(node["key"], {"x": 80, "y": 80})})
     return laid_out
+
+
+def infer_handles(source_x: float, source_y: float, target_x: float, target_y: float) -> tuple[str, str]:
+    dx = target_x - source_x
+    dy = target_y - source_y
+    if abs(dx) >= abs(dy):
+        return ("right", "left") if dx >= 0 else ("left", "right")
+    return ("bottom", "top") if dy >= 0 else ("top", "bottom")
