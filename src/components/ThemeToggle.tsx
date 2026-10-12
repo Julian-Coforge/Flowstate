@@ -1,10 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { applyTheme, readTheme, type Theme } from "@/lib/theme";
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() => (typeof window === "undefined" ? "light" : readTheme()));
+  const [theme, setTheme] = useState<Theme>("light");
+
+  useEffect(() => {
+    const next = readTheme();
+    applyTheme(next);
+    setTheme(next);
+  }, []);
 
   function toggle() {
     const next = theme === "light" ? "dark" : "light";

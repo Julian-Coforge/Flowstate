@@ -105,7 +105,7 @@ function Canvas({ projectId }: { projectId: string }) {
   const [taskDate, setTaskDate] = useState("");
   const [taskRepeat, setTaskRepeat] = useState<Recurrence>("none");
   const [help, setHelp] = useState(false);
-  const [colorMode] = useState<"light" | "dark">(() => (typeof window === "undefined" ? "light" : readTheme()));
+  const [colorMode, setColorMode] = useState<"light" | "dark">("light");
   const [aiOn, setAiOn] = useState(false);
   const [idea, setIdea] = useState("");
   const [mode, setMode] = useState<"quick" | "thinking">("quick");
@@ -118,6 +118,7 @@ function Canvas({ projectId }: { projectId: string }) {
   }, [nodes, edges]);
 
   useEffect(() => {
+    setColorMode(readTheme());
     api<{ enabled: boolean }>("/api/ai/status")
       .then((data) => setAiOn(data.enabled))
       .catch(() => setAiOn(false));

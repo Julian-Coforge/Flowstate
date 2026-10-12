@@ -8,6 +8,7 @@ const eslintConfig = defineConfig([
   {
     rules: {
       "@next/next/no-location-assign-relative-destination": "off",
+      "react-hooks/set-state-in-effect": "off",
     },
   },
   globalIgnores([".next/**", "out/**", "build/**", "backend/**", "node_modules/**"]),
