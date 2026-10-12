@@ -47,7 +47,7 @@ Not present: AI generation, recurring tasks, any Supabase code, a dark-mode togg
 
 **D1. Backend/auth/DB: the slides and the repo disagree.** Slide 8 says Supabase Auth + Supabase DB, with Next.js route handlers as the REST API. The speaker notes (stale) say Node/Express + PostgreSQL. The README says the proposal named Clerk. The repo implements SQLite + local sessions "so it runs without third-party keys". **Default: keep SQLite/local auth as the working baseline** (it already satisfies every Must-have and runs offline), keep all DB access behind `src/server/store.ts`, and treat Supabase as the Phase 7 migration. Ask the user whether the Supabase migration is required for submission. If it is, do Phase 7 before any "Want" items. Also tell the user the notes on slide 8 are out of date.
 
-**D2. AI model IDs.** Slide 7 names "Claude Haiku" (quick) and "Claude Sonnet" (thinking). Use current IDs `claude-haiku-5-5` and `claude-sonnet-5-5`. Invoke the `claude-api` skill before writing that code. Put both IDs in env/config, not hard-coded in routes.
+**D2. AI model IDs.** Originally Claude Haiku/Sonnet; this repo uses OpenAI instead: `gpt-4o-mini` (quick) and `gpt-4o` (thinking). Put both IDs in env/config, not hard-coded in routes.
 
 **D3. Simplified canvas.** Slide 6 says the canvas is "inspiration only" and "simpler". Do not chase the screenshots' feature set.
 
@@ -88,7 +88,7 @@ Walk each Must-have against the code and fix gaps; write tests as you go.
 
 ### Phase 5: AI plan generation (≈5h, optional, product works without it)
 Server only, never expose the key to the client.
-- Env: `ANTHROPIC_API_KEY`, `AI_MODEL_QUICK=claude-haiku-5-5`, `AI_MODEL_THINKING=claude-sonnet-5-5`. If the key is absent, hide the "Generate a plan" box and return a clear 503 from the route.
+- Env: `OPENAI_API_KEY`, `AI_MODEL_QUICK=gpt-4o-mini`, `AI_MODEL_THINKING=gpt-4o`. If the key is absent, hide the "Generate a plan" box and return a clear 503 from the route.
 - Route `POST /api/projects/[id]/generate` (or accept it on project create): body `{ idea: string (≤500 chars), mode: "quick" | "thinking" }`.
 - Zod `planSchema` for the AI reply: `{ nodes: [{ key, title, description, importance, checklist: string[] }], edges: [{ from, to }], todos: [{ text, nodeKey? }] }` with limits: quick 5–8 nodes, thinking 10–20; unique keys; edges reference existing keys; no self-links or duplicates (reuse `canLink`); string length caps. Request structured output / JSON only, parse, **validate before saving**, retry once on invalid output, then return a friendly error.
 - Save in one DB transaction: nodes with auto-layout positions (simple layered layout by edge depth, or `dagre`), edges, checklist items, todos. Nothing is saved if validation fails.

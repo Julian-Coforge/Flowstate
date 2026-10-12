@@ -13,9 +13,9 @@ class Settings(BaseSettings):
     supabase_secret_key: str = ""
     database_url: str = ""
     cors_origins: str = "http://localhost:3000"
-    anthropic_api_key: str = ""
-    ai_model_quick: str = "claude-haiku-5-5"
-    ai_model_thinking: str = "claude-sonnet-5-5"
+    openai_api_key: str = ""
+    ai_model_quick: str = "gpt-4o-mini"
+    ai_model_thinking: str = "gpt-4o"
 
     @property
     def public_supabase_url(self) -> str:

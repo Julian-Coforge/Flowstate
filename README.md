@@ -47,8 +47,8 @@ npm run dev
 | `SUPABASE_SECRET_KEY` | API only (seed / admin) |
 | `DATABASE_URL` | API only (Postgres URI; URL-encode special characters in the password) |
 | `CORS_ORIGINS` | API (`http://localhost:3000`) |
-| `ANTHROPIC_API_KEY` | API only; omit to hide plan generation |
-| `AI_MODEL_QUICK` / `AI_MODEL_THINKING` | API only |
+| `OPENAI_API_KEY` | API only; omit to hide plan generation |
+| `AI_MODEL_QUICK` / `AI_MODEL_THINKING` | API only (defaults: `gpt-4o-mini` / `gpt-4o`) |
 
 Never commit `.env`.
 
@@ -58,7 +58,7 @@ Must: accounts, dashboard, project canvas, node notes/checklist/status, project 
 
 Should: shortcuts, due dates + calendar, progress, phone and laptop layout, dark mode.
 
-Want: drag-to-link, recurring tasks, AI plan generation (when an Anthropic key is set).
+Want: drag-to-link, recurring tasks, AI plan generation (when an OpenAI key is set).
 
 Not in this build: real-time collaboration, native apps, calendar sync, GitHub/Outlook integrations.
 

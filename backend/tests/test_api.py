@@ -140,3 +140,18 @@ def test_complete_recurring_spawns_next():
     todos = client.get("/api/todos").json()["todos"]
     texts = [item["text"] for item in todos if item["text"] == "Water plants"]
     assert len(texts) >= 2
+
+
+def test_generate_disabled_without_openai_key():
+    global current
+    current = USER_A
+    project = client.post("/api/projects", json={"title": "AI Off", "description": ""}).json()
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    response = client.post(f"/api/projects/{project['id']}/generate", json={"idea": "Build a shed", "mode": "quick"})
+    assert response.status_code == 503
+    assert "turned off" in response.json()["error"]
+    status = client.get("/api/ai/status").json()
+    assert status["enabled"] is False
+    get_settings.cache_clear()

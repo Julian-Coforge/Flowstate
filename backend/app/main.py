@@ -95,7 +95,7 @@ def layout_project(project_id: str, user: CurrentUser = Depends(get_current_user
 @app.post("/api/projects/{project_id}/generate")
 def generate(project_id: str, body: GenerateBody, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     cfg = get_settings()
-    if not cfg.anthropic_api_key:
+    if not cfg.openai_api_key:
         raise HttpError("Plan generation is turned off on this server.", 503)
     store.owned_project(db, user.id, project_id)
     check_rate_limit(user.id)
@@ -211,4 +211,4 @@ def remove_check(item_id: str, user: CurrentUser = Depends(get_current_user), db
 
 @app.get("/api/ai/status")
 def ai_status():
-    return {"enabled": bool(get_settings().anthropic_api_key)}
+    return {"enabled": bool(get_settings().openai_api_key)}
