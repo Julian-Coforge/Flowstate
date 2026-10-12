@@ -15,9 +15,13 @@ export default function Dashboard() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [steps, setSteps] = useState<CalendarStep[]>([]);
   const [duplicating, setDuplicating] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [projectFilter, setProjectFilter] = useState<"active" | "archived">("active");
+  const [activeProjects, setActiveProjects] = useState<ProjectSummary[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [idea, setIdea] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [mode, setMode] = useState<"quick" | "thinking">("quick");
   const [aiOn, setAiOn] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -37,16 +41,26 @@ export default function Dashboard() {
 
   useEffect(() => {
     const handle = setTimeout(() => {
-      api<{ projects: ProjectSummary[] }>(`/api/projects?q=${encodeURIComponent(query)}`)
+      api<{ projects: ProjectSummary[] }>(
+        `/api/projects?q=${encodeURIComponent(query)}&status=${projectFilter}`,
+      )
         .then((data) => {
           setProjects(data.projects);
+          if (projectFilter === "active") setActiveProjects(data.projects);
           setError(null);
         })
         .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load projects"))
         .finally(() => setLoading(false));
     }, 200);
     return () => clearTimeout(handle);
-  }, [query]);
+  }, [query, projectFilter]);
+
+  useEffect(() => {
+    if (projectFilter === "active") return;
+    api<{ projects: ProjectSummary[] }>("/api/projects?status=active")
+      .then((data) => setActiveProjects(data.projects))
+      .catch(() => undefined);
+  }, [projectFilter]);
 
   useEffect(() => {
     api<{ todos: Todo[]; steps: CalendarStep[] }>("/api/calendar")
@@ -84,12 +98,53 @@ export default function Dashboard() {
     setDuplicating(projectId);
     try {
       const copy = await api<ProjectSummary>(`/api/projects/${projectId}/duplicate`, { method: "POST" });
-      setProjects((current) => [copy, ...current]);
+      if (projectFilter === "active") {
+        setProjects((current) => [copy, ...current]);
+        setActiveProjects((current) => [copy, ...current]);
+      } else {
+        setActiveProjects((current) => [copy, ...current]);
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not duplicate the project");
     } finally {
       setDuplicating(null);
+    }
+  }
+
+  async function setProjectStatus(project: ProjectSummary, status: "active" | "archived") {
+    setBusyId(project.id);
+    try {
+      await api<ProjectSummary>(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+      if (status === "active") {
+        setActiveProjects((current) => [project, ...current.filter((item) => item.id !== project.id)]);
+      } else {
+        setActiveProjects((current) => current.filter((item) => item.id !== project.id));
+      }
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the project");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function removeProject(project: ProjectSummary) {
+    if (!confirm(`Delete “${project.title}”? This removes its steps and tasks.`)) return;
+    setBusyId(project.id);
+    try {
+      await api(`/api/projects/${project.id}`, { method: "DELETE" });
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+      setActiveProjects((current) => current.filter((item) => item.id !== project.id));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete the project");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -102,11 +157,16 @@ export default function Dashboard() {
         method: "POST",
         body: JSON.stringify({ title, description }),
       });
-      if (aiOn && idea.trim()) {
-        await api(`/api/projects/${project.id}/generate`, {
-          method: "POST",
-          body: JSON.stringify({ idea: idea.trim(), mode }),
-        });
+      if (aiOn && (idea.trim() || documentFile)) {
+        const form = new FormData();
+        form.append(
+          "idea",
+          idea.trim() ||
+            "Build a detailed work plan from this assignment brief. Break every major requirement into its own step, including setup, features, testing, and submission.",
+        );
+        form.append("mode", mode);
+        if (documentFile) form.append("document", documentFile);
+        await api(`/api/projects/${project.id}/generate`, { method: "POST", body: form });
       }
       window.location.href = `/projects/${project.id}`;
     } catch (err) {
@@ -200,12 +260,23 @@ export default function Dashboard() {
                   className="textarea mt-1 w-full"
                   rows={2}
                   maxLength={500}
-                  placeholder="Describe the project in a few sentences"
+                  placeholder="e.g. Holiday starting next Monday, or weekly shopping from 12 November"
                   value={idea}
                   onChange={(event) => setIdea(event.target.value)}
                   aria-label="Generate a plan from this idea"
                 />
               </label>
+              <label className="mt-2 block text-sm">
+                Attach a document (optional)
+                <input
+                  className="file-input file-input-bordered file-input-sm mt-1 w-full"
+                  type="file"
+                  accept=".txt,.md,.markdown,.csv,.pdf,.docx,text/plain,application/pdf"
+                  onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
+                  aria-label="Upload a document for the plan"
+                />
+              </label>
+              {documentFile ? <p className="mt-1 text-xs text-base-content/60">{documentFile.name}</p> : null}
               <div className="mt-2 flex gap-2">
                 <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("quick")}>
                   Quick
@@ -218,15 +289,33 @@ export default function Dashboard() {
           ) : null}
         </form>
 
-        <label className="mt-6 block text-sm">
-          Search projects
-          <input
-            className="input mt-1 w-full"
-            placeholder="Search by name"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
+        <div className="mt-6 flex flex-wrap items-end gap-3">
+          <label className="block min-w-[12rem] flex-1 text-sm">
+            Search projects
+            <input
+              className="input mt-1 w-full"
+              placeholder="Search by name"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`btn btn-sm ${projectFilter === "active" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setProjectFilter("active")}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${projectFilter === "archived" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setProjectFilter("archived")}
+            >
+              Archived
+            </button>
+          </div>
+        </div>
 
         {error ? (
           <p className="mt-4 text-sm text-error" role="alert">
@@ -238,13 +327,22 @@ export default function Dashboard() {
           {loading ? <p className="text-base-content/60">Loading projects…</p> : null}
           {!loading && projects.length === 0 ? (
             <p className="text-base-content/70">
-              {query ? "No projects match that search." : "No projects yet. Name one above and open its canvas."}
+              {query
+                ? "No projects match that search."
+                : projectFilter === "archived"
+                  ? "No archived projects."
+                  : "No projects yet. Name one above and open its canvas."}
             </p>
           ) : null}
           {projects.map((project) => (
             <article key={project.id} className="relative rounded-lg border border-base-300 bg-base-100 transition hover:border-primary">
-              <Link href={`/projects/${project.id}`} className="block p-4 pr-24">
-                <h2 className="text-lg font-semibold">{project.title}</h2>
+              <Link href={`/projects/${project.id}`} className="block p-4 pr-28">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold">{project.title}</h2>
+                  {project.status === "archived" ? (
+                    <span className="badge badge-ghost badge-sm">Archived</span>
+                  ) : null}
+                </div>
                 {project.description ? <p className="mt-1 line-clamp-2 text-sm text-base-content/70">{project.description}</p> : null}
                 <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-base-200">
                   <div className="h-full bg-primary" style={{ width: `${project.progress.percent}%` }} />
@@ -254,14 +352,32 @@ export default function Dashboard() {
                   {project.openTasks ? ` · ${project.openTasks} open tasks` : ""}
                 </p>
               </Link>
-              <button
-                className="btn btn-ghost btn-xs absolute right-2 top-2"
-                type="button"
-                disabled={duplicating === project.id}
-                onClick={() => void duplicate(project.id)}
-              >
-                {duplicating === project.id ? "Copying…" : "Duplicate"}
-              </button>
+              <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
+                <button
+                  className="btn btn-ghost btn-xs"
+                  type="button"
+                  disabled={duplicating === project.id || busyId === project.id}
+                  onClick={() => void duplicate(project.id)}
+                >
+                  {duplicating === project.id ? "Copying…" : "Duplicate"}
+                </button>
+                <button
+                  className="btn btn-ghost btn-xs"
+                  type="button"
+                  disabled={busyId === project.id}
+                  onClick={() => void setProjectStatus(project, project.status === "archived" ? "active" : "archived")}
+                >
+                  {project.status === "archived" ? "Restore" : "Archive"}
+                </button>
+                <button
+                  className="btn btn-ghost btn-xs text-error"
+                  type="button"
+                  disabled={busyId === project.id}
+                  onClick={() => void removeProject(project)}
+                >
+                  Delete
+                </button>
+              </div>
             </article>
           ))}
         </div>
@@ -282,7 +398,7 @@ export default function Dashboard() {
             <input className="input w-full" type="date" value={taskDate} onChange={(event) => setTaskDate(event.target.value)} aria-label="Due date" />
             <select className="select w-full" value={taskProject} onChange={(event) => setTaskProject(event.target.value)} aria-label="Project">
               <option value="">No project</option>
-              {projects.map((project) => (
+              {activeProjects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.title}
                 </option>

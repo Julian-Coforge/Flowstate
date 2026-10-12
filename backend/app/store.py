@@ -92,9 +92,11 @@ def owned_node(db: Session, user_id: str, node_id: str) -> Node:
     return node
 
 
-def list_projects(db: Session, user_id: str, query: str) -> list[dict]:
+def list_projects(db: Session, user_id: str, query: str, status: str | None = "active") -> list[dict]:
     stmt = select(Project).where(Project.user_id == _uid(user_id)).order_by(Project.created_at.desc())
     rows = list(db.scalars(stmt))
+    if status and status != "all":
+        rows = [row for row in rows if (row.status or "active") == status]
     trimmed = query.strip().replace("%", "").replace("_", "")
     if trimmed:
         lowered = trimmed.lower()
@@ -174,6 +176,26 @@ def get_project_bundle(db: Session, user_id: str, project_id: str) -> dict:
 def delete_project(db: Session, user_id: str, project_id: str) -> None:
     project = owned_project(db, user_id, project_id)
     db.delete(project)
+
+
+def update_project(db: Session, user_id: str, project_id: str, patch: dict) -> dict:
+    project = owned_project(db, user_id, project_id)
+    if "status" in patch and patch["status"] is not None:
+        project.status = patch["status"]
+    db.flush()
+    summaries = list_projects(db, user_id, "", status="all")
+    for item in summaries:
+        if item["id"] == str(project.id):
+            return item
+    return {
+        "id": str(project.id),
+        "title": project.title,
+        "description": project.description,
+        "status": project.status,
+        "createdAt": project.created_at,
+        "progress": progress_of([]),
+        "openTasks": 0,
+    }
 
 
 def create_node(
@@ -451,6 +473,7 @@ def insert_generated_plan(db: Session, user_id: str, project_id: str, nodes: lis
             status="todo",
             x=node["x"],
             y=node["y"],
+            due_date=_date(node.get("dueDate")),
         )
         db.add(row)
         db.flush()
@@ -480,6 +503,9 @@ def insert_generated_plan(db: Session, user_id: str, project_id: str, nodes: lis
         )
     for todo in todos:
         node_id = key_to_id.get(todo.get("nodeKey") or "")
+        recurrence = todo.get("recurrence") or "none"
+        if recurrence not in {"none", "daily", "weekly", "monthly"}:
+            recurrence = "none"
         db.add(
             Todo(
                 id=uuid.uuid4(),
@@ -488,8 +514,8 @@ def insert_generated_plan(db: Session, user_id: str, project_id: str, nodes: lis
                 node_id=node_id,
                 text=todo["text"],
                 done=False,
-                due_date=None,
-                recurrence="none",
+                due_date=_date(todo.get("dueDate")),
+                recurrence=recurrence,
                 color="none",
             )
         )

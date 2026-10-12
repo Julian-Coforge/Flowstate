@@ -10,11 +10,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     data: { session },
   } = await supabase.auth.getSession();
 
+  const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     cache: "no-store",
     headers: {
-      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...(init?.body && !isForm ? { "content-type": "application/json" } : {}),
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       ...init?.headers,
     },

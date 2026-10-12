@@ -9,6 +9,9 @@ TaskColor = Literal["none", "blue", "green", "amber", "rose", "violet", "teal"]
 GenerateMode = Literal["quick", "thinking"]
 
 
+ProjectStatus = Literal["active", "archived"]
+
+
 class ProjectCreate(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
@@ -17,6 +20,16 @@ class ProjectCreate(BaseModel):
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
+
+
+class ProjectPatch(BaseModel):
+    status: ProjectStatus | None = None
+
+    @model_validator(mode="after")
+    def require_fields(self):
+        if self.status is None:
+            raise ValueError("Nothing to update")
+        return self
 
 
 def parse_optional_date(value: str | None) -> str | None:
@@ -167,6 +180,12 @@ class PlanNode(BaseModel):
     description: str = Field(default="", max_length=2000)
     importance: Importance = "medium"
     checklist: list[str] = Field(default_factory=list, max_length=12)
+    dueDate: str | None = None
+
+    @field_validator("dueDate")
+    @classmethod
+    def node_due_date(cls, value: str | None) -> str | None:
+        return parse_optional_date(value)
 
 
 class PlanEdge(BaseModel):
@@ -179,16 +198,31 @@ class PlanEdge(BaseModel):
 class PlanTodo(BaseModel):
     text: str = Field(min_length=1, max_length=300)
     nodeKey: str | None = None
+    dueDate: str | None = None
+    recurrence: Recurrence = "none"
+
+    @field_validator("dueDate")
+    @classmethod
+    def todo_due_date(cls, value: str | None) -> str | None:
+        return parse_optional_date(value)
 
 
 class Plan(BaseModel):
     nodes: list[PlanNode]
     edges: list[PlanEdge] = Field(default_factory=list)
-    todos: list[PlanTodo] = Field(default_factory=list, max_length=20)
+    todos: list[PlanTodo] = Field(default_factory=list, max_length=30)
 
 
-def validate_plan(plan: Plan, mode: GenerateMode) -> Plan:
-    low, high = (5, 8) if mode == "quick" else (10, 20)
+def plan_node_bounds(mode: GenerateMode, *, has_document: bool = False) -> tuple[int, int]:
+    if has_document:
+        # Briefs/assignments need a real breakdown, not 1–2 vague steps.
+        return (5, 8) if mode == "quick" else (8, 20)
+    # Quick allows small calendar-style plans (e.g. one recurring reminder).
+    return (1, 8) if mode == "quick" else (5, 20)
+
+
+def validate_plan(plan: Plan, mode: GenerateMode, *, has_document: bool = False) -> Plan:
+    low, high = plan_node_bounds(mode, has_document=has_document)
     count = len(plan.nodes)
     if count < low or count > high:
         raise ValueError(f"A {mode} plan needs {low}–{high} steps")
@@ -205,6 +239,8 @@ def validate_plan(plan: Plan, mode: GenerateMode) -> Plan:
     for todo in plan.todos:
         if todo.nodeKey and todo.nodeKey not in key_set:
             raise ValueError("A task points at a missing step")
+        if todo.recurrence != "none" and not todo.dueDate:
+            raise ValueError("A repeating task needs a start date")
     return plan
 
 

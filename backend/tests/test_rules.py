@@ -1,4 +1,4 @@
-from app.rules import add_months, can_link, next_occurrence, progress
+from app.rules import add_months, auto_layout, can_link, next_occurrence, progress
 
 
 def test_progress_splits_done_from_all():
@@ -27,3 +27,27 @@ def test_month_end_clamps():
     assert next_occurrence("2026-10-12", "daily") == "2026-10-13"
     assert next_occurrence("2026-10-12", "weekly") == "2026-10-19"
     assert next_occurrence("2026-10-12", "none") is None
+
+
+def test_auto_layout_centers_remerge_against_branches():
+    nodes = [
+        {"key": "setup", "title": "Setup"},
+        {"key": "classic", "title": "Classic"},
+        {"key": "diff", "title": "Difficulty"},
+        {"key": "time", "title": "Time"},
+        {"key": "test", "title": "Test"},
+    ]
+    edges = [
+        {"from": "setup", "to": "classic"},
+        {"from": "setup", "to": "diff"},
+        {"from": "setup", "to": "time"},
+        {"from": "classic", "to": "test"},
+        {"from": "diff", "to": "test"},
+        {"from": "time", "to": "test"},
+    ]
+    laid = {node["key"]: node for node in auto_layout(nodes, edges)}
+    branch_ys = sorted(laid[key]["y"] for key in ("classic", "diff", "time"))
+    assert laid["classic"]["x"] == laid["diff"]["x"] == laid["time"]["x"]
+    assert laid["test"]["x"] > laid["classic"]["x"]
+    # Remerge node should sit roughly in the middle of the parallel branch band.
+    assert branch_ys[0] < laid["test"]["y"] < branch_ys[-1]

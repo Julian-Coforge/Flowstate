@@ -142,16 +142,76 @@ def test_complete_recurring_spawns_next():
     assert len(texts) >= 2
 
 
-def test_generate_disabled_without_openai_key():
+def test_generate_disabled_without_openai_key(monkeypatch):
     global current
     current = USER_A
     project = client.post("/api/projects", json={"title": "AI Off", "description": ""}).json()
-    from app.config import get_settings
+    from app.config import Settings, get_settings
 
+    monkeypatch.setenv("OPENAI_API_KEY", "")
     get_settings.cache_clear()
-    response = client.post(f"/api/projects/{project['id']}/generate", json={"idea": "Build a shed", "mode": "quick"})
+    monkeypatch.setattr("app.main.get_settings", lambda: Settings(openai_api_key=""))
+    response = client.post(
+        f"/api/projects/{project['id']}/generate",
+        data={"idea": "Build a shed", "mode": "quick"},
+    )
     assert response.status_code == 503
     assert "turned off" in response.json()["error"]
     status = client.get("/api/ai/status").json()
     assert status["enabled"] is False
     get_settings.cache_clear()
+
+
+def test_archive_and_delete_project():
+    global current
+    current = USER_A
+    project = client.post("/api/projects", json={"title": "To shelf", "description": ""}).json()
+    archived = client.patch(f"/api/projects/{project['id']}", json={"status": "archived"}).json()
+    assert archived["status"] == "archived"
+    active = client.get("/api/projects?status=active").json()["projects"]
+    assert all(item["id"] != project["id"] for item in active)
+    shelved = client.get("/api/projects?status=archived").json()["projects"]
+    assert any(item["id"] == project["id"] for item in shelved)
+    restored = client.patch(f"/api/projects/{project['id']}", json={"status": "active"}).json()
+    assert restored["status"] == "active"
+    deleted = client.delete(f"/api/projects/{project['id']}")
+    assert deleted.status_code == 200
+    listed = client.get("/api/projects?status=all").json()["projects"]
+    assert all(item["id"] != project["id"] for item in listed)
+
+
+def test_generate_accepts_document_upload(monkeypatch):
+    global current
+    current = USER_A
+    project = client.post("/api/projects", json={"title": "From brief", "description": ""}).json()
+    from app.config import Settings
+
+    monkeypatch.setattr("app.main.get_settings", lambda: Settings(openai_api_key="sk-test"))
+    monkeypatch.setattr(
+        "app.main.generate_plan",
+        lambda settings, idea, mode, document_text=None: {
+            "nodes": [
+                {
+                    "key": "brief",
+                    "title": "Read the brief",
+                    "description": document_text or "",
+                    "importance": "high",
+                    "checklist": [],
+                    "dueDate": None,
+                    "x": 80,
+                    "y": 80,
+                }
+            ],
+            "edges": [],
+            "todos": [{"text": "Skim the brief", "nodeKey": "brief", "dueDate": None, "recurrence": "none"}],
+        },
+    )
+    response = client.post(
+        f"/api/projects/{project['id']}/generate",
+        data={"idea": "Turn this brief into a plan", "mode": "quick"},
+        files={"document": ("brief.txt", b"Ship by next Friday. Pack light.", "text/plain")},
+    )
+    assert response.status_code == 200
+    bundle = response.json()
+    assert any(node["title"] == "Read the brief" for node in bundle["nodes"])
+    assert "Ship by next Friday" in bundle["nodes"][0]["description"]

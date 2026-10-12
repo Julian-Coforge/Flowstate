@@ -66,7 +66,7 @@ type StepData = {
 type StepNode = Node<StepData, "step">;
 
 type Bundle = {
-  project: { id: string; title: string; description: string };
+  project: { id: string; title: string; description: string; status: string };
   nodes: FlowNode[];
   edges: FlowEdge[];
   todos: Todo[];
@@ -193,6 +193,7 @@ function Canvas({ projectId }: { projectId: string }) {
   const [colorMode, setColorMode] = useState<"light" | "dark">("light");
   const [aiOn, setAiOn] = useState(false);
   const [idea, setIdea] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [mode, setMode] = useState<"quick" | "thinking">("quick");
   const [generating, setGenerating] = useState(false);
   const nodesRef = useRef(nodes);
@@ -653,20 +654,47 @@ function Canvas({ projectId }: { projectId: string }) {
 
   async function generatePlan(event: FormEvent) {
     event.preventDefault();
+    if (!idea.trim() && !documentFile) {
+      setError("Add an idea or upload a document");
+      return;
+    }
     setGenerating(true);
     try {
+      const form = new FormData();
+      form.append(
+        "idea",
+        idea.trim() ||
+          "Build a detailed work plan from this assignment brief. Break every major requirement into its own step, including setup, features, testing, and submission.",
+      );
+      form.append("mode", mode);
+      if (documentFile) form.append("document", documentFile);
       const data = await api<Bundle>(`/api/projects/${projectId}/generate`, {
         method: "POST",
-        body: JSON.stringify({ idea, mode }),
+        body: form,
       });
       applyBundle(data);
       setSelectedId(null);
       setIdea("");
+      setDocumentFile(null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate a plan");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function archiveProject() {
+    const next = project?.status === "archived" ? "active" : "archived";
+    try {
+      const updated = await api<{ status: string }>(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: next }),
+      });
+      setProject((current) => (current ? { ...current, status: updated.status } : current));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the project");
     }
   }
 
@@ -696,7 +724,10 @@ function Canvas({ projectId }: { projectId: string }) {
       <div className="flex h-[calc(100svh-4rem)] flex-col">
         <div className="flex flex-wrap items-center gap-2 overflow-x-auto border-b border-base-300 bg-base-100 px-3 py-2">
           <div className="mr-auto min-w-0">
-            <h1 className="truncate text-lg font-semibold">{project?.title ?? "Project"}</h1>
+            <h1 className="flex items-center gap-2 truncate text-lg font-semibold">
+              <span className="truncate">{project?.title ?? "Project"}</span>
+              {project?.status === "archived" ? <span className="badge badge-ghost badge-sm">Archived</span> : null}
+            </h1>
             <p className="text-xs text-base-content/60">
               {summary.percent}% · {summary.done} / {summary.total} steps
               {linkMode ? (linkSource ? " · Tap the second step" : " · Tap the first step") : ""}
@@ -730,6 +761,9 @@ function Canvas({ projectId }: { projectId: string }) {
           </button>
           <button className="btn btn-ghost btn-sm" type="button" onClick={() => setHelp(true)} title="?">
             Shortcuts
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void archiveProject()}>
+            {project?.status === "archived" ? "Restore" : "Archive"}
           </button>
           <button className="btn btn-ghost btn-sm text-error" type="button" onClick={() => void removeProject()}>
             Delete project
@@ -803,11 +837,18 @@ function Canvas({ projectId }: { projectId: string }) {
                         className="textarea w-full"
                         rows={3}
                         maxLength={500}
-                        placeholder="What are you planning?"
+                        placeholder="e.g. Holiday starting next Monday, or weekly shopping from 12 November"
                         value={idea}
                         onChange={(event) => setIdea(event.target.value)}
-                        required
                       />
+                      <input
+                        className="file-input file-input-bordered file-input-sm w-full"
+                        type="file"
+                        accept=".txt,.md,.markdown,.csv,.pdf,.docx,text/plain,application/pdf"
+                        onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
+                        aria-label="Upload a document for the plan"
+                      />
+                      {documentFile ? <p className="text-xs text-base-content/60">{documentFile.name}</p> : null}
                       <div className="flex gap-2">
                         <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : ""}`} onClick={() => setMode("quick")}>
                           Quick

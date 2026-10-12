@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, File, Form, Query, UploadFile
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import CurrentUser, get_current_user
 from app.config import get_settings
 from app.db import get_db
+from app.documents import extract_document_text
 from app.errors import HttpError, http_error_handler, http_exception_handler
 from app.generate import check_rate_limit, generate_plan
 from app.schemas import (
@@ -16,10 +17,12 @@ from app.schemas import (
     ChecklistPatch,
     EdgeCreate,
     GenerateBody,
+    GenerateMode,
     NodeCreate,
     NodePatch,
     NodePositionsBody,
     ProjectCreate,
+    ProjectPatch,
     TodoCreate,
     TodoPatch,
 )
@@ -62,8 +65,15 @@ def me(user: CurrentUser = Depends(get_current_user)):
 
 
 @app.get("/api/projects")
-def projects(q: str = Query(default=""), user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    return {"projects": store.list_projects(db, user.id, q)}
+def projects(
+    q: str = Query(default=""),
+    status: str = Query(default="active"),
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if status not in {"active", "archived", "all"}:
+        raise HttpError("Status must be active, archived, or all", 400)
+    return {"projects": store.list_projects(db, user.id, q, status)}
 
 
 @app.post("/api/projects", status_code=201)
@@ -74,6 +84,11 @@ def create_project(body: ProjectCreate, user: CurrentUser = Depends(get_current_
 @app.get("/api/projects/{project_id}")
 def get_project(project_id: str, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     return store.get_project_bundle(db, user.id, project_id)
+
+
+@app.patch("/api/projects/{project_id}")
+def patch_project(project_id: str, body: ProjectPatch, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return store.update_project(db, user.id, project_id, body.model_dump(exclude_unset=True))
 
 
 @app.delete("/api/projects/{project_id}")
@@ -93,13 +108,38 @@ def layout_project(project_id: str, user: CurrentUser = Depends(get_current_user
 
 
 @app.post("/api/projects/{project_id}/generate")
-def generate(project_id: str, body: GenerateBody, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+async def generate(
+    project_id: str,
+    idea: str = Form(default=""),
+    mode: GenerateMode = Form(default="quick"),
+    document: UploadFile | None = File(default=None),
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     cfg = get_settings()
     if not cfg.openai_api_key:
         raise HttpError("Plan generation is turned off on this server.", 503)
     store.owned_project(db, user.id, project_id)
     check_rate_limit(user.id)
-    plan = generate_plan(cfg, body.idea, body.mode)
+
+    cleaned_idea = (idea or "").strip()
+    document_text = None
+    if document is not None and document.filename:
+        data = await document.read()
+        document_text = extract_document_text(document.filename, data)
+    if not cleaned_idea and not document_text:
+        raise HttpError("Add an idea or upload a document", 400)
+    if not cleaned_idea:
+        cleaned_idea = (
+            "Build a detailed work plan from this assignment brief. "
+            "Break every major requirement into its own step, including setup, features, testing, and submission."
+        )
+    try:
+        body = GenerateBody(idea=cleaned_idea, mode=mode)
+    except ValidationError as exc:
+        raise HttpError(str(exc.errors()[0]["msg"]).replace("Value error, ", ""), 400) from exc
+
+    plan = generate_plan(cfg, body.idea, body.mode, document_text=document_text)
     return store.insert_generated_plan(db, user.id, project_id, plan["nodes"], plan["edges"], plan["todos"])
 
 

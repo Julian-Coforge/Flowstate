@@ -87,10 +87,16 @@ def auto_layout(nodes: list[dict], edges: list[dict]) -> list[dict]:
     layers: dict[int, list[str]] = {}
     for key in keys:
         layers.setdefault(depth[key], []).append(key)
+    # Keep sibling order stable and prefer original node order within a layer.
+    order = {key: index for index, key in enumerate(keys)}
     positions = {}
+    max_layer_size = max((len(layer_keys) for layer_keys in layers.values()), default=1)
     for layer, layer_keys in layers.items():
+        layer_keys = sorted(layer_keys, key=lambda key: order[key])
+        # Center narrower layers (e.g. remarge/submit) against wider parallel branches.
+        y_offset = ((max_layer_size - len(layer_keys)) * 170) / 2
         for index, key in enumerate(layer_keys):
-            positions[key] = {"x": 80 + layer * 300, "y": 80 + index * 170}
+            positions[key] = {"x": 80 + layer * 300, "y": 80 + y_offset + index * 170}
     laid_out = []
     for node in nodes:
         laid_out.append({**node, **positions.get(node["key"], {"x": 80, "y": 80})})
