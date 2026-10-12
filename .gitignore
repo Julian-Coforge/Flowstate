@@ -6,3 +6,13 @@ data/*.db-*
 .DS_Store
 .env
 .env.local
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+backend/.venv/
+*.egg-info/
+.mypy_cache/
+tsconfig.tsbuildinfo
