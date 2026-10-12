@@ -1,5 +1,6 @@
 export type NodeStatus = "todo" | "doing" | "done";
 export type Importance = "low" | "medium" | "high";
+export type Recurrence = "none" | "daily" | "weekly" | "monthly";
 
 export type ChecklistItem = {
   id: string;
@@ -36,6 +37,7 @@ export type Todo = {
   text: string;
   done: boolean;
   dueDate: string | null;
+  recurrence: Recurrence;
   projectTitle: string | null;
 };
 

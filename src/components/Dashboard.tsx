@@ -3,26 +3,32 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { RECURRENCE_LABEL } from "@/lib/labels";
 import { addDays, formatLong, isOnTodayList, isUpcoming, todayISO } from "@/lib/tasks";
-import type { ProjectSummary, Todo } from "@/lib/types";
+import type { ProjectSummary, Recurrence, Todo } from "@/lib/types";
 
 export default function Dashboard() {
-  const [today, setToday] = useState<string | null>(null);
+  const [today] = useState(() => todayISO());
   const [query, setQuery] = useState("");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [idea, setIdea] = useState("");
+  const [mode, setMode] = useState<"quick" | "thinking">("quick");
+  const [aiOn, setAiOn] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [taskText, setTaskText] = useState("");
-  const [taskDate, setTaskDate] = useState("");
+  const [taskDate, setTaskDate] = useState(() => todayISO());
   const [taskProject, setTaskProject] = useState("");
+  const [taskRepeat, setTaskRepeat] = useState<Recurrence>("none");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const iso = todayISO();
-    setToday(iso);
-    setTaskDate(iso);
+    api<{ enabled: boolean }>("/api/ai/status")
+      .then((data) => setAiOn(data.enabled))
+      .catch(() => setAiOn(false));
   }, []);
 
   useEffect(() => {
@@ -56,14 +62,22 @@ export default function Dashboard() {
   async function createProject(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    setCreating(true);
     try {
       const project = await api<ProjectSummary>("/api/projects", {
         method: "POST",
         body: JSON.stringify({ title, description }),
       });
+      if (aiOn && idea.trim()) {
+        await api(`/api/projects/${project.id}/generate`, {
+          method: "POST",
+          body: JSON.stringify({ idea: idea.trim(), mode }),
+        });
+      }
       window.location.href = `/projects/${project.id}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the project");
+      setCreating(false);
     }
   }
 
@@ -77,6 +91,7 @@ export default function Dashboard() {
           text: taskText,
           dueDate: taskDate || null,
           projectId: taskProject || null,
+          recurrence: taskRepeat,
         }),
       });
       setTodos((current) => [todo, ...current]);
@@ -105,6 +120,10 @@ export default function Dashboard() {
     }
     try {
       await api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
+      if (done && todo.recurrence && todo.recurrence !== "none") {
+        const data = await api<{ todos: Todo[] }>("/api/todos");
+        setTodos(data.todos);
+      }
     } catch (err) {
       setTodos((current) => current.map((item) => (item.id === todo.id ? todo : item)));
       setError(err instanceof Error ? err.message : "Could not update the task");
@@ -117,25 +136,51 @@ export default function Dashboard() {
         <p className="text-sm font-medium uppercase tracking-[0.14em] text-primary">Today</p>
         <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">{today ? formatLong(today) : "Today"}</h1>
 
-        <form onSubmit={(event) => void createProject(event)} className="mt-6 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-          <input
-            className="input w-full min-w-0"
-            placeholder="New project name"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            aria-label="New project name"
-            required
-          />
-          <input
-            className="input w-full min-w-0"
-            placeholder="What's it for? (optional)"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            aria-label="Project description"
-          />
-          <button className="btn btn-primary" type="submit">
-            Create project
-          </button>
+        <form onSubmit={(event) => void createProject(event)} className="mt-6 grid gap-2">
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <input
+              className="input w-full min-w-0"
+              placeholder="New project name"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              aria-label="New project name"
+              required
+            />
+            <input
+              className="input w-full min-w-0"
+              placeholder="What's it for? (optional)"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              aria-label="Project description"
+            />
+            <button className="btn btn-primary" type="submit" disabled={creating}>
+              {creating ? "Creating…" : "Create project"}
+            </button>
+          </div>
+          {aiOn ? (
+            <div className="rounded-lg border border-base-300 bg-base-100 p-3">
+              <label className="block text-sm">
+                Generate a plan (optional)
+                <textarea
+                  className="textarea mt-1 w-full"
+                  rows={2}
+                  maxLength={500}
+                  placeholder="Describe the project in a few sentences"
+                  value={idea}
+                  onChange={(event) => setIdea(event.target.value)}
+                  aria-label="Generate a plan from this idea"
+                />
+              </label>
+              <div className="mt-2 flex gap-2">
+                <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("quick")}>
+                  Quick
+                </button>
+                <button type="button" className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("thinking")}>
+                  Thinking
+                </button>
+              </div>
+            </div>
+          ) : null}
         </form>
 
         <label className="mt-6 block text-sm">
@@ -193,19 +238,8 @@ export default function Dashboard() {
             required
           />
           <div className="flex gap-2">
-            <input
-              className="input w-full"
-              type="date"
-              value={taskDate}
-              onChange={(event) => setTaskDate(event.target.value)}
-              aria-label="Due date"
-            />
-            <select
-              className="select w-full"
-              value={taskProject}
-              onChange={(event) => setTaskProject(event.target.value)}
-              aria-label="Project"
-            >
+            <input className="input w-full" type="date" value={taskDate} onChange={(event) => setTaskDate(event.target.value)} aria-label="Due date" />
+            <select className="select w-full" value={taskProject} onChange={(event) => setTaskProject(event.target.value)} aria-label="Project">
               <option value="">No project</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
@@ -214,13 +248,20 @@ export default function Dashboard() {
               ))}
             </select>
           </div>
+          <select className="select w-full" value={taskRepeat} onChange={(event) => setTaskRepeat(event.target.value as Recurrence)} aria-label="Repeat">
+            {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
           <button className="btn btn-primary btn-sm" type="submit">
             Add task
           </button>
         </form>
 
         <ul className="mt-4 grid gap-2">
-          {todayTasks.length === 0 ? <li className="text-sm text-base-content/60">Nothing on today's list.</li> : null}
+          {todayTasks.length === 0 ? <li className="text-sm text-base-content/60">Nothing on today&apos;s list.</li> : null}
           {todayTasks.map((todo) => (
             <TaskRow key={todo.id} todo={todo} today={today} onToggle={toggle} />
           ))}
@@ -259,6 +300,11 @@ function TaskRow({
       />
       <span className={todo.done ? "text-base-content/50 line-through" : ""}>
         {todo.text}
+        {todo.recurrence && todo.recurrence !== "none" ? (
+          <span className="ml-1 inline-block text-xs text-primary" title={RECURRENCE_LABEL[todo.recurrence]}>
+            repeat
+          </span>
+        ) : null}
         {todo.projectTitle ? <span className="mt-0.5 block text-xs text-base-content/50">{todo.projectTitle}</span> : null}
         {overdue ? <span className="mt-0.5 block text-xs text-warning">Overdue</span> : null}
       </span>

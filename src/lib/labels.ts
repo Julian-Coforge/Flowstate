@@ -9,3 +9,10 @@ export const IMPORTANCE_LABEL = {
   medium: "Medium",
   high: "High",
 } as const;
+
+export const RECURRENCE_LABEL = {
+  none: "Does not repeat",
+  daily: "Every day",
+  weekly: "Every week",
+  monthly: "Every month",
+} as const;

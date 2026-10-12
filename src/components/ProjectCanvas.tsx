@@ -19,9 +19,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api } from "@/lib/api";
-import { IMPORTANCE_LABEL, STATUS_LABEL } from "@/lib/labels";
+import { IMPORTANCE_LABEL, RECURRENCE_LABEL, STATUS_LABEL } from "@/lib/labels";
 import { progress } from "@/lib/progress";
-import type { ChecklistItem, FlowEdge, FlowNode, Importance, NodeStatus, Todo } from "@/lib/types";
+import { readTheme } from "@/lib/theme";
+import type { ChecklistItem, FlowEdge, FlowNode, Importance, NodeStatus, Recurrence, Todo } from "@/lib/types";
 
 type StepData = {
   title: string;
@@ -42,17 +43,19 @@ type Bundle = {
 
 type NodePatch = Partial<Pick<FlowNode, "title" | "description" | "importance" | "notes" | "status" | "x" | "y">>;
 
-function StepCard({ data }: NodeProps<StepNode>) {
+function StepCard({ data, id }: NodeProps<StepNode>) {
   const border =
     data.status === "done" ? "border-success" : data.status === "doing" ? "border-primary" : "border-base-300";
   return (
     <div
-      className={`w-44 rounded-md border-2 bg-white px-3 py-2 shadow-sm ${border} ${data.linking ? "ring-2 ring-primary ring-offset-2" : ""}`}
+      className={`w-44 rounded-md border-2 bg-base-100 px-3 py-2 shadow-sm ${border} ${data.linking ? "ring-2 ring-primary ring-offset-2" : ""}`}
+      aria-label={data.title}
+      data-id={id}
     >
-      <Handle type="target" position={Position.Left} />
+      <Handle type="target" position={Position.Left} className="!h-3 !w-3" />
       <div className="text-sm font-semibold leading-snug">{data.title}</div>
       <div className="mt-1 text-[11px] uppercase tracking-wide text-base-content/50">{STATUS_LABEL[data.status]}</div>
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} className="!h-3 !w-3" />
     </div>
   );
 }
@@ -70,6 +73,7 @@ function toFlowNode(step: FlowNode, linkingId: string | null): StepNode {
       importance: step.importance,
       linking: step.id === linkingId,
     },
+    ariaLabel: step.title,
   };
 }
 
@@ -98,10 +102,26 @@ function Canvas({ projectId }: { projectId: string }) {
   const [linkSource, setLinkSource] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [taskText, setTaskText] = useState("");
+  const [taskDate, setTaskDate] = useState("");
+  const [taskRepeat, setTaskRepeat] = useState<Recurrence>("none");
+  const [help, setHelp] = useState(false);
+  const [colorMode] = useState<"light" | "dark">(() => (typeof window === "undefined" ? "light" : readTheme()));
+  const [aiOn, setAiOn] = useState(false);
+  const [idea, setIdea] = useState("");
+  const [mode, setMode] = useState<"quick" | "thinking">("quick");
+  const [generating, setGenerating] = useState(false);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
-  nodesRef.current = nodes;
-  edgesRef.current = edges;
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  }, [nodes, edges]);
+
+  useEffect(() => {
+    api<{ enabled: boolean }>("/api/ai/status")
+      .then((data) => setAiOn(data.enabled))
+      .catch(() => setAiOn(false));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +167,7 @@ function Canvas({ projectId }: { projectId: string }) {
                   status: patch.status ?? node.data.status,
                   importance: patch.importance ?? node.data.importance,
                 },
+                ariaLabel: patch.title ?? node.data.title,
               }
             : node,
         ),
@@ -180,25 +201,28 @@ function Canvas({ projectId }: { projectId: string }) {
     }
   }
 
-  async function createLink(source: string, target: string) {
-    try {
-      const edge = await api<FlowEdge>("/api/edges", {
-        method: "POST",
-        body: JSON.stringify({ projectId, sourceNodeId: source, targetNodeId: target }),
-      });
-      setEdges((current) => current.concat(toFlowEdge(edge)));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not link those steps");
-    }
-  }
+  const createLink = useCallback(
+    async (source: string, target: string) => {
+      try {
+        const edge = await api<FlowEdge>("/api/edges", {
+          method: "POST",
+          body: JSON.stringify({ projectId, sourceNodeId: source, targetNodeId: target }),
+        });
+        setEdges((current) => current.concat(toFlowEdge(edge)));
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not link those steps");
+      }
+    },
+    [projectId, setEdges],
+  );
 
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
       void createLink(connection.source, connection.target);
     },
-    [projectId],
+    [createLink],
   );
 
   function onNodeClick(id: string) {
@@ -251,7 +275,10 @@ function Canvas({ projectId }: { projectId: string }) {
       const target = event.target as HTMLElement | null;
       const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
       if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === "n" || event.key === "N") {
+      if (event.key === "?" || (event.shiftKey && event.key === "/")) {
+        event.preventDefault();
+        setHelp((current) => !current);
+      } else if (event.key === "n" || event.key === "N") {
         event.preventDefault();
         void addStep();
       } else if (event.key === "l" || event.key === "L") {
@@ -262,6 +289,7 @@ function Canvas({ projectId }: { projectId: string }) {
         setSelectedId(null);
         setLinkMode(false);
         setLinkSource(null);
+        setHelp(false);
       } else if (event.key === "Enter") {
         const selectedNode = nodesRef.current.find((node) => node.selected);
         if (selectedNode) setSelectedId(selectedNode.id);
@@ -279,7 +307,13 @@ function Canvas({ projectId }: { projectId: string }) {
     try {
       const todo = await api<Todo>("/api/todos", {
         method: "POST",
-        body: JSON.stringify({ text: taskText, projectId, dueDate: null }),
+        body: JSON.stringify({
+          text: taskText,
+          projectId,
+          nodeId: selectedId,
+          dueDate: taskDate || null,
+          recurrence: taskRepeat,
+        }),
       });
       setTodos((current) => [todo, ...current]);
       setTaskText("");
@@ -294,9 +328,34 @@ function Canvas({ projectId }: { projectId: string }) {
     setTodos((current) => current.map((item) => (item.id === todo.id ? { ...item, done } : item)));
     try {
       await api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
+      if (done && todo.recurrence && todo.recurrence !== "none") {
+        const data = await api<Bundle>(`/api/projects/${projectId}`);
+        setTodos(data.todos);
+      }
     } catch (err) {
       setTodos((current) => current.map((item) => (item.id === todo.id ? todo : item)));
       setError(err instanceof Error ? err.message : "Could not update the task");
+    }
+  }
+
+  async function generatePlan(event: FormEvent) {
+    event.preventDefault();
+    setGenerating(true);
+    try {
+      const data = await api<Bundle>(`/api/projects/${projectId}/generate`, {
+        method: "POST",
+        body: JSON.stringify({ idea, mode }),
+      });
+      setSteps(data.nodes);
+      setTodos(data.todos);
+      setNodes(data.nodes.map((node) => toFlowNode(node, null)));
+      setEdges(data.edges.map(toFlowEdge));
+      setIdea("");
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not generate a plan");
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -323,20 +382,21 @@ function Canvas({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-[calc(100svh-4rem)] flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-base-300 bg-base-100 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 overflow-x-auto border-b border-base-300 bg-base-100 px-3 py-2">
         <div className="mr-auto min-w-0">
           <h1 className="truncate text-lg font-semibold">{project?.title ?? "Project"}</h1>
           <p className="text-xs text-base-content/60">
             {summary.percent}% · {summary.done} / {summary.total} steps
-            {linkMode ? (linkSource ? " · Choose the second step" : " · Choose the first step") : ""}
+            {linkMode ? (linkSource ? " · Tap the second step" : " · Tap the first step") : ""}
           </p>
         </div>
-        <button className="btn btn-primary btn-sm" type="button" onClick={() => void addStep()}>
+        <button className="btn btn-primary btn-sm" type="button" onClick={() => void addStep()} title="N">
           Add step
         </button>
         <button
           className={`btn btn-sm ${linkMode ? "btn-primary" : "btn-ghost"}`}
           type="button"
+          title="L"
           onClick={() => {
             setLinkMode((current) => !current);
             setLinkSource(null);
@@ -344,23 +404,23 @@ function Canvas({ projectId }: { projectId: string }) {
         >
           Link
         </button>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={() => void deleteSelection()}>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={() => void deleteSelection()} title="Delete">
           Delete
+        </button>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={() => setHelp(true)} title="?">
+          Shortcuts
         </button>
         <button className="btn btn-ghost btn-sm text-error" type="button" onClick={() => void removeProject()}>
           Delete project
         </button>
       </div>
-      <p className="border-b border-base-300 bg-base-100 px-3 py-1 text-xs text-base-content/50">
-        N new step · L link · Delete remove · Enter open · Esc close. Drag between the dots to link.
-      </p>
       {error ? (
         <p className="bg-error/10 px-3 py-2 text-sm text-error" role="alert">
           {error}
         </p>
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative min-h-[60vh] flex-1 lg:min-h-0">
+        <div className="relative min-h-[48vh] flex-1 lg:min-h-0">
           {ready ? (
             <ReactFlow
               nodes={nodes}
@@ -385,7 +445,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 }).catch(() => setError("Could not save the new position"));
               }}
               fitView
-              colorMode="light"
+              colorMode={colorMode}
               deleteKeyCode={null}
             >
               <Background />
@@ -396,14 +456,45 @@ function Canvas({ projectId }: { projectId: string }) {
             <p className="p-6 text-base-content/60">Loading the canvas…</p>
           )}
           {ready && steps.length === 0 ? (
-            <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-base-content/60">
-              Add a step to start the map.
-            </p>
+            <div className="absolute inset-0 flex items-center justify-center p-6">
+              <div className="max-w-md rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+                <p className="text-base-content/70">Add a step to start the map, or generate a plan from an idea.</p>
+                {aiOn ? (
+                  <form onSubmit={(event) => void generatePlan(event)} className="mt-3 grid gap-2">
+                    <textarea
+                      className="textarea w-full"
+                      rows={3}
+                      maxLength={500}
+                      placeholder="What are you planning?"
+                      value={idea}
+                      onChange={(event) => setIdea(event.target.value)}
+                      required
+                    />
+                    <div className="flex gap-2">
+                      <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : ""}`} onClick={() => setMode("quick")}>
+                        Quick
+                      </button>
+                      <button type="button" className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : ""}`} onClick={() => setMode("thinking")}>
+                        Thinking
+                      </button>
+                      <button className="btn btn-primary btn-sm ml-auto" type="submit" disabled={generating}>
+                        {generating ? "Planning…" : "Generate a plan"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+              </div>
+            </div>
           ) : null}
         </div>
-        <aside className="w-full overflow-y-auto border-t border-base-300 bg-base-100 p-4 lg:w-80 lg:border-t-0 lg:border-l">
+        <aside
+          className={`w-full overflow-y-auto border-t border-base-300 bg-base-100 p-4 lg:w-80 lg:border-t-0 lg:border-l ${
+            selected ? "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-20 max-lg:max-h-[55vh] max-lg:rounded-t-2xl max-lg:shadow-xl" : "max-lg:max-h-[42vh]"
+          }`}
+        >
           {selected ? (
             <StepDetail
+              key={selected.id}
               step={selected}
               onClose={() => setSelectedId(null)}
               onPatch={(patch) => void patchStep(selected.id, patch)}
@@ -416,7 +507,7 @@ function Canvas({ projectId }: { projectId: string }) {
             <div>
               <h2 className="text-lg font-semibold">Project tasks</h2>
               {project?.description ? <p className="mt-1 text-sm text-base-content/70">{project.description}</p> : null}
-              <form onSubmit={(event) => void addTask(event)} className="mt-3 flex gap-2">
+              <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2">
                 <input
                   className="input w-full"
                   placeholder="Add a task"
@@ -425,6 +516,16 @@ function Canvas({ projectId }: { projectId: string }) {
                   aria-label="Add a project task"
                   required
                 />
+                <div className="flex gap-2">
+                  <input className="input w-full" type="date" value={taskDate} onChange={(event) => setTaskDate(event.target.value)} aria-label="Due date" />
+                  <select className="select w-full" value={taskRepeat} onChange={(event) => setTaskRepeat(event.target.value as Recurrence)} aria-label="Repeat">
+                    {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <button className="btn btn-primary btn-sm" type="submit">
                   Add
                 </button>
@@ -440,7 +541,11 @@ function Canvas({ projectId }: { projectId: string }) {
                       onChange={() => void toggleTodo(todo)}
                       aria-label={todo.text}
                     />
-                    <span className={todo.done ? "text-base-content/50 line-through" : ""}>{todo.text}</span>
+                    <span className={todo.done ? "text-base-content/50 line-through" : ""}>
+                      {todo.text}
+                      {todo.recurrence && todo.recurrence !== "none" ? <span className="ml-1 text-xs text-primary">repeat</span> : null}
+                      {todo.dueDate ? <span className="mt-0.5 block text-xs text-base-content/50">{todo.dueDate}</span> : null}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -448,6 +553,24 @@ function Canvas({ projectId }: { projectId: string }) {
           )}
         </aside>
       </div>
+      {help ? (
+        <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 p-4 sm:items-center" onClick={() => setHelp(false)}>
+          <div className="w-full max-w-sm rounded-lg bg-base-100 p-4" onClick={(event) => event.stopPropagation()}>
+            <h2 className="text-lg font-semibold">Canvas shortcuts</h2>
+            <ul className="mt-3 grid gap-1 text-sm">
+              <li>N — new step</li>
+              <li>L — link mode (or drag between the dots)</li>
+              <li>Delete / Backspace — remove selected step or link</li>
+              <li>Enter — open the selected step</li>
+              <li>Esc — close and stop linking</li>
+              <li>? — this list</li>
+            </ul>
+            <button className="btn btn-primary btn-sm mt-4" type="button" onClick={() => setHelp(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -472,15 +595,10 @@ function StepDetail({
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setTitle(step.title);
-    setDescription(step.description);
-    setNotes(step.notes);
     return () => {
       if (notesTimer.current) clearTimeout(notesTimer.current);
     };
-    // Drafts reset only when a different step is opened.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step.id]);
+  }, []);
 
   async function addCheck(event: FormEvent) {
     event.preventDefault();
@@ -506,6 +624,17 @@ function StepDetail({
     } catch (err) {
       onChecklist(step.checklist);
       onError(err instanceof Error ? err.message : "Could not update the checklist");
+    }
+  }
+
+  async function removeCheck(item: ChecklistItem) {
+    onChecklist(step.checklist.filter((entry) => entry.id !== item.id));
+    try {
+      await api(`/api/checklist/${item.id}`, { method: "DELETE" });
+      onError(null);
+    } catch (err) {
+      onChecklist(step.checklist);
+      onError(err instanceof Error ? err.message : "Could not remove the checklist item");
     }
   }
 
@@ -542,11 +671,7 @@ function StepDetail({
       <div className="mt-3 grid grid-cols-2 gap-2">
         <label className="text-sm">
           Status
-          <select
-            className="select mt-1 w-full"
-            value={step.status}
-            onChange={(event) => onPatch({ status: event.target.value as NodeStatus })}
-          >
+          <select className="select mt-1 w-full" value={step.status} onChange={(event) => onPatch({ status: event.target.value as NodeStatus })}>
             {Object.entries(STATUS_LABEL).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -594,7 +719,10 @@ function StepDetail({
               onChange={() => void toggleCheck(item)}
               aria-label={item.text}
             />
-            <span className={item.done ? "text-base-content/50 line-through" : ""}>{item.text}</span>
+            <span className={`flex-1 ${item.done ? "text-base-content/50 line-through" : ""}`}>{item.text}</span>
+            <button className="btn btn-ghost btn-xs" type="button" onClick={() => void removeCheck(item)} aria-label={`Remove ${item.text}`}>
+              Remove
+            </button>
           </li>
         ))}
       </ul>

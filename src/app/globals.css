@@ -15,6 +15,20 @@
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
 }
+@plugin "daisyui/theme" {
+  name: "dark";
+  --color-primary: #8ea2ff;
+  --color-primary-content: #10162c;
+  --color-base-100: #151a1c;
+  --color-base-200: #0f1315;
+  --color-base-300: #2a3336;
+  --color-base-content: #e8eeec;
+  --color-success: #4ade80;
+  --color-success-content: #052e16;
+  --color-warning: #fbbf24;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+}
 
 html {
   font-family: var(--font-sans), "Helvetica Neue", Arial, sans-serif;
@@ -25,4 +39,9 @@ h2,
 h3,
 .display {
   font-family: var(--font-display), "Helvetica Neue", Arial, sans-serif;
+}
+
+.react-flow__handle {
+  width: 12px;
+  height: 12px;
 }

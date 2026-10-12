@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { api } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"sign-in" | "create">("sign-in");
@@ -15,17 +15,23 @@ export default function LoginPage() {
     event.preventDefault();
     setPending(true);
     setError(null);
+    const supabase = createClient();
     try {
       if (mode === "create") {
-        await api("/api/auth/register", {
-          method: "POST",
-          body: JSON.stringify({ name, email, password }),
+        const { data, error: created } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { name } },
         });
+        if (created) throw created;
+        if (!data.session) {
+          setError("Check your email to confirm the account, then sign in.");
+          setPending(false);
+          return;
+        }
       } else {
-        await api("/api/auth/login", {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        });
+        const { error: signed } = await supabase.auth.signInWithPassword({ email, password });
+        if (signed) throw signed;
       }
       window.location.href = "/";
     } catch (err) {
@@ -34,17 +40,19 @@ export default function LoginPage() {
     }
   }
 
-  async function useDemo() {
+  async function signInWithDemo() {
     setMode("sign-in");
     setEmail("demo@flowstate.app");
     setPassword("flowstate");
     setPending(true);
     setError(null);
     try {
-      await api("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email: "demo@flowstate.app", password: "flowstate" }),
+      const supabase = createClient();
+      const { error: signed } = await supabase.auth.signInWithPassword({
+        email: "demo@flowstate.app",
+        password: "flowstate",
       });
+      if (signed) throw signed;
       window.location.href = "/";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign in");
@@ -57,24 +65,14 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <p className="text-sm font-medium uppercase tracking-[0.14em] text-primary">Flowstate</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight">Your day, your projects, one place.</h1>
-        <p className="mt-3 text-base-content/70">
-          A planner for what is due, and a canvas for how the work fits together.
-        </p>
+        <p className="mt-3 text-base-content/70">A planner for what is due, and a canvas for how the work fits together.</p>
 
         <form onSubmit={(event) => void submit(event)} className="mt-8 rounded-lg border border-base-300 bg-base-100 p-5">
           <div className="mb-4 flex gap-2">
-            <button
-              type="button"
-              className={`btn btn-sm ${mode === "sign-in" ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => setMode("sign-in")}
-            >
+            <button type="button" className={`btn btn-sm ${mode === "sign-in" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("sign-in")}>
               Sign in
             </button>
-            <button
-              type="button"
-              className={`btn btn-sm ${mode === "create" ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => setMode("create")}
-            >
+            <button type="button" className={`btn btn-sm ${mode === "create" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("create")}>
               Create account
             </button>
           </div>
@@ -121,7 +119,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <button className="btn btn-link mt-3 px-0" type="button" onClick={() => void useDemo()}>
+        <button className="btn btn-link mt-3 px-0" type="button" onClick={() => void signInWithDemo()}>
           Use the demo account
         </button>
         <p className="text-sm text-base-content/60">demo@flowstate.app · flowstate</p>

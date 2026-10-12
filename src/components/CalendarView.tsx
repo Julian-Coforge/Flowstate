@@ -2,26 +2,25 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { RECURRENCE_LABEL } from "@/lib/labels";
 import { formatMonth, todayISO } from "@/lib/tasks";
-import type { Todo } from "@/lib/types";
+import type { Recurrence, Todo } from "@/lib/types";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function CalendarView() {
-  const [today, setToday] = useState(todayISO());
+  const [today] = useState(() => todayISO());
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
-  const [selected, setSelected] = useState(todayISO());
+  const [selected, setSelected] = useState(() => todayISO());
   const [todos, setTodos] = useState<Todo[]>([]);
   const [text, setText] = useState("");
+  const [repeat, setRepeat] = useState<Recurrence>("none");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const iso = todayISO();
-    setToday(iso);
-    setSelected(iso);
     api<{ todos: Todo[] }>("/api/todos")
       .then((data) => setTodos(data.todos))
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load tasks"));
@@ -52,7 +51,7 @@ export default function CalendarView() {
     try {
       const todo = await api<Todo>("/api/todos", {
         method: "POST",
-        body: JSON.stringify({ text, dueDate: selected }),
+        body: JSON.stringify({ text, dueDate: selected, recurrence: repeat }),
       });
       setTodos((current) => [todo, ...current]);
       setText("");
@@ -67,6 +66,10 @@ export default function CalendarView() {
     setTodos((current) => current.map((item) => (item.id === todo.id ? { ...item, done } : item)));
     try {
       await api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
+      if (done && todo.recurrence && todo.recurrence !== "none") {
+        const data = await api<{ todos: Todo[] }>("/api/todos");
+        setTodos(data.todos);
+      }
     } catch (err) {
       setTodos((current) => current.map((item) => (item.id === todo.id ? todo : item)));
       setError(err instanceof Error ? err.message : "Could not update the task");
@@ -108,12 +111,13 @@ export default function CalendarView() {
             const items = byDay.get(cell.iso) ?? [];
             const isToday = cell.iso === today;
             const isSelected = cell.iso === selected;
+            const overdue = cell.iso < today && items.some((item) => !item.done);
             return (
               <button
                 key={cell.iso}
                 type="button"
                 onClick={() => setSelected(cell.iso!)}
-                className={`min-h-20 border-t border-base-200 p-2 text-left ${isSelected ? "bg-primary/10" : "hover:bg-base-200"}`}
+                className={`min-h-20 border-t border-base-200 p-2 text-left ${isSelected ? "bg-primary/10" : "hover:bg-base-200"} ${overdue ? "text-warning" : ""}`}
               >
                 <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-sm ${isToday ? "bg-primary text-primary-content" : ""}`}>
                   {cell.day}
@@ -129,7 +133,7 @@ export default function CalendarView() {
 
       <section className="mt-6 rounded-lg border border-base-300 bg-base-100 p-4">
         <h2 className="text-lg font-semibold">{selected}</h2>
-        <form onSubmit={(event) => void addTask(event)} className="mt-3 flex gap-2">
+        <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
           <input
             className="input w-full"
             placeholder="Add a task for this day"
@@ -138,6 +142,13 @@ export default function CalendarView() {
             aria-label="Add a task for this day"
             required
           />
+          <select className="select" value={repeat} onChange={(event) => setRepeat(event.target.value as Recurrence)} aria-label="Repeat">
+            {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
           <button className="btn btn-primary" type="submit">
             Add
           </button>
@@ -155,6 +166,9 @@ export default function CalendarView() {
               />
               <span className={todo.done ? "text-base-content/50 line-through" : ""}>
                 {todo.text}
+                {todo.recurrence && todo.recurrence !== "none" ? (
+                  <span className="ml-1 text-xs text-primary">repeat</span>
+                ) : null}
                 {todo.projectTitle ? <span className="mt-0.5 block text-xs text-base-content/50">{todo.projectTitle}</span> : null}
               </span>
             </li>

@@ -46,11 +46,14 @@ export const edgeCreateSchema = z.object({
   targetNodeId: z.string().min(1),
 });
 
+export const recurrenceSchema = z.enum(["none", "daily", "weekly", "monthly"]);
+
 export const todoCreateSchema = z.object({
   text: z.string().trim().min(1, "Write the task").max(300),
   projectId: z.string().min(1).nullable().optional(),
   nodeId: z.string().min(1).nullable().optional(),
   dueDate: dateField.optional(),
+  recurrence: recurrenceSchema.optional().default("none"),
 });
 
 export const todoPatchSchema = z
@@ -59,8 +62,14 @@ export const todoPatchSchema = z
     done: z.boolean().optional(),
     dueDate: dateField.optional(),
     projectId: z.string().min(1).nullable().optional(),
+    recurrence: recurrenceSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "Nothing to update" });
+
+export const generateSchema = z.object({
+  idea: z.string().trim().min(1, "Describe what you want to plan").max(500),
+  mode: z.enum(["quick", "thinking"]).optional().default("quick"),
+});
 
 export const checklistCreateSchema = z.object({
   nodeId: z.string().min(1),
