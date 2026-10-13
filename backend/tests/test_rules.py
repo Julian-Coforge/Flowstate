@@ -1,4 +1,4 @@
-from app.rules import add_months, auto_layout, can_link, next_occurrence, progress
+from app.rules import add_months, auto_layout, can_link, infer_handles, next_occurrence, progress
 
 
 def test_progress_blends_status_without_checklists():
@@ -40,6 +40,13 @@ def test_month_end_clamps():
     assert next_occurrence("2026-10-12", "none") is None
 
 
+def test_infer_handles_keeps_layer_hops_on_left_right():
+    assert infer_handles(0, 0, 360, 0) == ("right", "left")
+    assert infer_handles(0, 0, 0, 220) == ("bottom", "top")
+    # Forward + down still left/right so the bend sits in the gutter.
+    assert infer_handles(80, 80, 440, 280) == ("right", "left")
+
+
 def test_auto_layout_centers_remerge_against_branches():
     nodes = [
         {"key": "setup", "title": "Setup"},
@@ -62,3 +69,6 @@ def test_auto_layout_centers_remerge_against_branches():
     assert laid["test"]["x"] > laid["classic"]["x"]
     # Remerge node should sit roughly in the middle of the parallel branch band.
     assert branch_ys[0] < laid["test"]["y"] < branch_ys[-1]
+    # Wider gutters between columns so SmoothStep vertical runs clear the cards.
+    assert laid["test"]["x"] - laid["classic"]["x"] >= 360
+    assert branch_ys[1] - branch_ys[0] >= 200

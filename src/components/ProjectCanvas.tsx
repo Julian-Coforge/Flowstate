@@ -246,8 +246,8 @@ function toFlowNode(step: FlowNode, linkingId: string | null, selectedId: string
   };
 }
 
-const EDGE_CORNER = 18;
-const EDGE_OFFSET = 16;
+const EDGE_CORNER = 36;
+const EDGE_OFFSET = 28;
 
 function FlowLink(props: EdgeProps) {
   return <SmoothStepEdge {...props} pathOptions={{ borderRadius: EDGE_CORNER, offset: EDGE_OFFSET }} />;
