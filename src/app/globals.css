@@ -127,12 +127,33 @@ h3,
   transform: translateY(-1px);
 }
 
+.project-card {
+  z-index: 0;
+  overflow: hidden;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    background-color 180ms ease;
+}
+
+.project-card:hover {
+  z-index: 2;
+  border-color: color-mix(in oklab, var(--color-primary) 50%, var(--color-base-300));
+  box-shadow: 0 14px 32px rgb(20 34 32 / 10%);
+  transform: scale(1.035);
+}
+
 [data-theme="dark"] .btn-primary:not(:disabled) {
   box-shadow: 0 1px 0 rgb(0 0 0 / 35%), 0 4px 14px rgb(142 162 255 / 18%);
 }
 
 [data-theme="dark"] .surface-card:hover {
   box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
+}
+
+[data-theme="dark"] .project-card:hover {
+  box-shadow: 0 16px 36px rgb(0 0 0 / 35%);
 }
 
 .file-drop {

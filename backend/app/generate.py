@@ -8,7 +8,12 @@ from datetime import date
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.dates import apply_schedule_anchors, format_anchor_block, resolve_schedule_anchors
+from app.dates import (
+    apply_recurrence_anchors,
+    apply_schedule_anchors,
+    format_anchor_block,
+    resolve_schedule_anchors,
+)
 from app.rules import auto_layout, can_link
 from app.schemas import GenerateMode, Plan, plan_node_bounds, validate_plan
 
@@ -83,7 +88,8 @@ def build_prompt(
         "- Put concrete dates on nodes and todos whenever the idea or document mentions timing.\n"
         "- dueDate must be ISO YYYY-MM-DD, or null if undated.\n"
         "- Preparation steps belong BEFORE the deadline; submission lands ON the deadline.\n"
-        "- For repeating reminders (daily/weekly/monthly), create ONE todo with recurrence set and dueDate = first occurrence.\n"
+        "- For repeating reminders (daily/weekly/monthly / every Monday), create ONE todo with recurrence set and dueDate = first occurrence.\n"
+        "- Phrases like \"every Monday\", \"daily\", or \"weekly\" MUST become a todo with recurrence weekly/daily/monthly — never a one-off task.\n"
         f"{doc_rules}"
         "General rules:\n"
         "- keys must be unique short slugs\n"
@@ -196,6 +202,7 @@ def generate_plan(
             )
             todos = [todo.model_dump() for todo in plan.todos]
             nodes, todos = apply_schedule_anchors(nodes, todos, anchors)
+            nodes, todos = apply_recurrence_anchors(nodes, todos, anchors, idea)
             edges = []
             node_ids = {node["key"] for node in nodes}
             existing: list[tuple[str, str]] = []

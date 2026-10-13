@@ -244,7 +244,7 @@ export default function Dashboard() {
             />
             <input
               className="input w-full min-w-0"
-              placeholder="What's it for? (optional)"
+              placeholder="What's it for?"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               aria-label="Project description"
@@ -256,7 +256,7 @@ export default function Dashboard() {
           {aiOn ? (
             <div className="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
               <label className="block text-sm font-medium">
-                Generate a plan (optional)
+                Generate a plan
                 <textarea
                   className="textarea mt-1.5 w-full"
                   rows={2}
@@ -314,7 +314,7 @@ export default function Dashboard() {
           </p>
         ) : null}
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="mt-5 grid gap-3 overflow-visible sm:grid-cols-2">
           {loading ? <p className="text-base-content/60">Loading projects…</p> : null}
           {!loading && projects.length === 0 ? (
             <p className="text-base-content/70">
@@ -326,8 +326,8 @@ export default function Dashboard() {
             </p>
           ) : null}
           {projects.map((project) => (
-            <article key={project.id} className="surface-card relative rounded-lg border border-base-300 bg-base-100">
-              <Link href={`/projects/${project.id}`} className="block p-4 pr-28">
+            <article key={project.id} className="project-card group relative rounded-lg border border-base-300 bg-base-100">
+              <Link href={`/projects/${project.id}`} className="block p-4 pb-5">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-semibold">{project.title}</h2>
                   {project.status === "archived" ? (
@@ -343,28 +343,40 @@ export default function Dashboard() {
                   {project.openTasks ? ` · ${project.openTasks} open tasks` : ""}
                 </p>
               </Link>
-              <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
+              <div className="project-card-actions pointer-events-none absolute inset-x-0 bottom-0 flex translate-y-1 items-center justify-center gap-1.5 bg-gradient-to-t from-base-100 via-base-100/95 to-transparent px-3 pb-3 pt-8 opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
                 <button
-                  className="btn btn-ghost btn-xs"
+                  className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
                   type="button"
                   disabled={duplicating === project.id || busyId === project.id}
-                  onClick={() => void duplicate(project.id)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void duplicate(project.id);
+                  }}
                 >
                   {duplicating === project.id ? "Copying…" : "Duplicate"}
                 </button>
                 <button
-                  className="btn btn-ghost btn-xs"
+                  className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
                   type="button"
                   disabled={busyId === project.id}
-                  onClick={() => void setProjectStatus(project, project.status === "archived" ? "active" : "archived")}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void setProjectStatus(project, project.status === "archived" ? "active" : "archived");
+                  }}
                 >
                   {project.status === "archived" ? "Restore" : "Archive"}
                 </button>
                 <button
-                  className="btn btn-ghost btn-xs text-error"
+                  className="btn btn-ghost btn-xs border border-error/30 bg-base-100 text-error"
                   type="button"
                   disabled={busyId === project.id}
-                  onClick={() => void removeProject(project)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void removeProject(project);
+                  }}
                 >
                   Delete
                 </button>

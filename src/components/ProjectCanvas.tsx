@@ -294,10 +294,17 @@ function Canvas({ projectId }: { projectId: string }) {
     );
   }, [steps, selectedId, linkSource, wheelFocusId, setNodes]);
 
+  const previousSelectedId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!ready || !selectedId) return;
+    if (!ready) return;
+    const previous = previousSelectedId.current;
+    previousSelectedId.current = selectedId;
     const frame = window.requestAnimationFrame(() => {
-      void fitView({ nodes: [{ id: selectedId }], padding: 0.14, duration: 420, maxZoom: 1.75 });
+      if (selectedId) {
+        void fitView({ nodes: [{ id: selectedId }], padding: 0.14, duration: 420, maxZoom: 1.75 });
+      } else if (previous) {
+        void fitView({ padding: 0.18, duration: 420, maxZoom: 1.15, minZoom: 0.35 });
+      }
     });
     return () => window.cancelAnimationFrame(frame);
   }, [selectedId, ready, fitView]);
@@ -1286,12 +1293,14 @@ function InlineEditor({ step }: { step: FlowNode }) {
     }
   }
 
+  function sortChecklist(items: ChecklistItem[]) {
+    return [...items].sort((left, right) => Number(left.done) - Number(right.done));
+  }
+
   async function toggleCheck(item: ChecklistItem) {
     const done = !item.done;
-    patchChecklist(
-      step.id,
-      step.checklist.map((entry) => (entry.id === item.id ? { ...entry, done } : entry)),
-    );
+    const next = sortChecklist(step.checklist.map((entry) => (entry.id === item.id ? { ...entry, done } : entry)));
+    patchChecklist(step.id, next);
     try {
       await api(`/api/checklist/${item.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
       setError(null);
@@ -1397,7 +1406,7 @@ function InlineEditor({ step }: { step: FlowNode }) {
       </label>
       <h3 className="mt-4 text-sm font-semibold">Checklist</h3>
       <ul className="mt-2 grid gap-2">
-        {step.checklist.map((item) => (
+        {sortChecklist(step.checklist).map((item) => (
           <li key={item.id} className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="checkbox checkbox-sm mt-0.5" checked={item.done} onChange={() => void toggleCheck(item)} aria-label={item.text} />
             <span className={`flex-1 ${item.done ? "text-base-content/50 line-through" : ""}`}>{item.text}</span>
