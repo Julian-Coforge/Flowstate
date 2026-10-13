@@ -162,6 +162,28 @@ def test_generate_disabled_without_openai_key(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_delete_account_removes_projects(monkeypatch):
+    global current
+    current = USER_A
+    client.post("/api/projects", json={"title": "Gone soon", "description": ""}).json()
+
+    class FakeResponse:
+        status_code = 204
+
+    monkeypatch.setattr("app.main.httpx.delete", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(
+        "app.main.get_settings",
+        lambda: __import__("app.config", fromlist=["Settings"]).Settings(
+            next_public_supabase_url="https://example.supabase.co",
+            supabase_secret_key="secret",
+        ),
+    )
+    response = client.delete("/api/auth/account")
+    assert response.status_code == 200
+    listed = client.get("/api/projects?status=all").json()["projects"]
+    assert listed == []
+
+
 def test_archive_and_delete_project():
     global current
     current = USER_A

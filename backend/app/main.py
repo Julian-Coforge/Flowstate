@@ -1,3 +1,4 @@
+import httpx
 from fastapi import Depends, FastAPI, File, Form, Query, UploadFile
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +63,26 @@ def health(db: Session = Depends(get_db)):
 @app.get("/api/auth/me")
 def me(user: CurrentUser = Depends(get_current_user)):
     return {"user": user.as_dict()}
+
+
+@app.delete("/api/auth/account")
+def delete_account(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    cfg = get_settings()
+    if not cfg.public_supabase_url or not cfg.supabase_secret_key:
+        raise HttpError("Account deletion is not configured on this server.", 503)
+    store.delete_user_data(db, user.id)
+    headers = {
+        "apikey": cfg.supabase_secret_key,
+        "Authorization": f"Bearer {cfg.supabase_secret_key}",
+    }
+    response = httpx.delete(
+        f"{cfg.public_supabase_url}/auth/v1/admin/users/{user.id}",
+        headers=headers,
+        timeout=20.0,
+    )
+    if response.status_code not in (200, 204):
+        raise HttpError("Could not delete the account. Try again shortly.", 502)
+    return {"ok": True}
 
 
 @app.get("/api/projects")

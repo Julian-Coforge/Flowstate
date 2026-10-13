@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent as ReactPointerEvent, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Background,
@@ -22,13 +22,22 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import CanvasWheel, { type WheelAction } from "@/components/CanvasWheel";
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
 import { api } from "@/lib/api";
 import { inferHandles } from "@/lib/layout";
 import { IMPORTANCE_LABEL, RECURRENCE_LABEL, STATUS_LABEL } from "@/lib/labels";
 import { progress } from "@/lib/progress";
-import { readTheme } from "@/lib/theme";
+import { readTheme, type Theme } from "@/lib/theme";
 import type { ChecklistItem, FlowEdge, FlowNode, Importance, NodeStatus, Recurrence, TaskColor, Todo } from "@/lib/types";
+
+type WheelState = {
+  x: number;
+  y: number;
+  target: "pane" | "node" | "edge";
+  nodeId?: string;
+  edgeId?: string;
+};
 
 type NodePatch = Partial<Pick<FlowNode, "title" | "description" | "importance" | "notes" | "status" | "x" | "y" | "dueDate">>;
 
@@ -173,7 +182,7 @@ export default function ProjectCanvas({ projectId }: { projectId: string }) {
 }
 
 function Canvas({ projectId }: { projectId: string }) {
-  const { fitView } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
   const [project, setProject] = useState<Bundle["project"] | null>(null);
   const [steps, setSteps] = useState<FlowNode[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -196,6 +205,8 @@ function Canvas({ projectId }: { projectId: string }) {
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [mode, setMode] = useState<"quick" | "thinking">("quick");
   const [generating, setGenerating] = useState(false);
+  const [wheel, setWheel] = useState<WheelState | null>(null);
+  const holdTimerRef = useRef<number | null>(null);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const stepsRef = useRef(steps);
@@ -221,6 +232,13 @@ function Canvas({ projectId }: { projectId: string }) {
     api<{ enabled: boolean }>("/api/ai/status")
       .then((data) => setAiOn(data.enabled))
       .catch(() => setAiOn(false));
+    function onTheme(event: Event) {
+      const detail = (event as CustomEvent<Theme>).detail;
+      if (detail === "light" || detail === "dark") setColorMode(detail);
+      else setColorMode(readTheme());
+    }
+    window.addEventListener("flowstate-theme", onTheme);
+    return () => window.removeEventListener("flowstate-theme", onTheme);
   }, []);
 
   useEffect(() => {
@@ -308,8 +326,8 @@ function Canvas({ projectId }: { projectId: string }) {
     setEdges(data.edges.map(toFlowEdge));
   }
 
-  async function addStep() {
-    const position = {
+  async function addStep(at?: { x: number; y: number }) {
+    const position = at ?? {
       x: 80 + (steps.length % 4) * 280,
       y: 80 + Math.floor(steps.length / 4) * 160,
     };
@@ -326,6 +344,149 @@ function Canvas({ projectId }: { projectId: string }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add a step");
     }
+  }
+
+  function clearHoldTimer() {
+    if (holdTimerRef.current != null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }
+
+  function openWheel(state: WheelState) {
+    clearHoldTimer();
+    setWheel(state);
+  }
+
+  function wheelActions(): WheelAction[] {
+    if (!wheel) return [];
+    if (wheel.target === "node" && wheel.nodeId) {
+      const nodeId = wheel.nodeId;
+      return [
+        {
+          id: "add",
+          label: "Add",
+          run: () => {
+            const point = screenToFlowPosition({ x: wheel.x, y: wheel.y });
+            void addStep({ x: point.x + 40, y: point.y + 40 });
+          },
+        },
+        {
+          id: "link",
+          label: "Link",
+          run: () => {
+            setSelectedId(nodeId);
+            setLinkMode(true);
+            setLinkSource(nodeId);
+          },
+        },
+        {
+          id: "delete",
+          label: "Delete",
+          danger: true,
+          run: () => {
+            setSelectedId(nodeId);
+            void deleteSelection({ nodeIds: [nodeId] });
+          },
+        },
+        {
+          id: "deselect",
+          label: "Clear",
+          run: () => {
+            setSelectedId(null);
+            setLinkMode(false);
+            setLinkSource(null);
+          },
+        },
+      ];
+    }
+    if (wheel.target === "edge" && wheel.edgeId) {
+      const edgeId = wheel.edgeId;
+      return [
+        {
+          id: "delete",
+          label: "Delete",
+          danger: true,
+          run: () => {
+            void deleteSelection({ edgeIds: [edgeId] });
+          },
+        },
+        {
+          id: "add",
+          label: "Add",
+          run: () => {
+            const point = screenToFlowPosition({ x: wheel.x, y: wheel.y });
+            void addStep(point);
+          },
+        },
+        {
+          id: "clear",
+          label: "Clear",
+          run: () => {
+            setSelectedId(null);
+            setLinkMode(false);
+            setLinkSource(null);
+          },
+        },
+      ];
+    }
+    return [
+      {
+        id: "add",
+        label: "Add",
+        run: () => {
+          const point = screenToFlowPosition({ x: wheel.x, y: wheel.y });
+          void addStep(point);
+        },
+      },
+      {
+        id: "link",
+        label: "Link",
+        run: () => {
+          setLinkMode(true);
+          setLinkSource(null);
+        },
+      },
+      {
+        id: "tidy",
+        label: "Tidy",
+        disabled: steps.length === 0 || tidying,
+        run: () => void tidy(),
+      },
+      {
+        id: "undo",
+        label: "Undo",
+        disabled: !canUndo,
+        run: () => void undo(),
+      },
+      {
+        id: "delete",
+        label: "Delete",
+        danger: true,
+        disabled: !nodes.some((node) => node.selected) && !edges.some((edge) => edge.selected),
+        run: () => void deleteSelection(),
+      },
+    ];
+  }
+
+  function onCanvasPointerDown(event: ReactPointerEvent) {
+    if (event.button !== 2) return;
+    const x = event.clientX;
+    const y = event.clientY;
+    const target = event.target as HTMLElement;
+    const nodeEl = target.closest(".react-flow__node") as HTMLElement | null;
+    const edgeEl = target.closest(".react-flow__edge") as HTMLElement | null;
+    clearHoldTimer();
+    holdTimerRef.current = window.setTimeout(() => {
+      if (nodeEl?.dataset.id) {
+        setSelectedId(nodeEl.dataset.id);
+        openWheel({ x, y, target: "node", nodeId: nodeEl.dataset.id });
+      } else if (edgeEl?.dataset.id) {
+        openWheel({ x, y, target: "edge", edgeId: edgeEl.dataset.id });
+      } else {
+        openWheel({ x, y, target: "pane" });
+      }
+    }, 160);
   }
 
   const createLink = useCallback(
@@ -383,9 +544,12 @@ function Canvas({ projectId }: { projectId: string }) {
     setLinkMode(false);
   }
 
-  async function deleteSelection() {
-    const selectedNodes = nodesRef.current.filter((node) => node.selected).map((node) => node.id);
-    const selectedEdges = edgesRef.current.filter((edge) => edge.selected);
+  async function deleteSelection(forced?: { nodeIds?: string[]; edgeIds?: string[] }) {
+    const selectedNodes =
+      forced?.nodeIds ?? nodesRef.current.filter((node) => node.selected).map((node) => node.id);
+    const selectedEdges = forced?.edgeIds
+      ? edgesRef.current.filter((edge) => forced.edgeIds!.includes(edge.id))
+      : edgesRef.current.filter((edge) => edge.selected);
     const removedNodes = new Set(selectedNodes);
     const edgesToDelete = selectedEdges.filter((edge) => !removedNodes.has(edge.source) && !removedNodes.has(edge.target));
     if (selectedNodes.length === 0 && edgesToDelete.length === 0) return;
@@ -775,7 +939,13 @@ function Canvas({ projectId }: { projectId: string }) {
           </p>
         ) : null}
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          <div className="relative min-h-[60vh] flex-1 lg:min-h-0">
+          <div
+            className="relative min-h-[60vh] flex-1 lg:min-h-0"
+            onPointerDown={onCanvasPointerDown}
+            onPointerUp={clearHoldTimer}
+            onPointerLeave={clearHoldTimer}
+            onContextMenu={(event) => event.preventDefault()}
+          >
             {ready ? (
               <ReactFlow
                 nodes={nodes}
@@ -796,6 +966,20 @@ function Canvas({ projectId }: { projectId: string }) {
                   setSelectedId(null);
                   setLinkMode(false);
                   setLinkSource(null);
+                  setWheel(null);
+                }}
+                onPaneContextMenu={(event) => {
+                  event.preventDefault();
+                  openWheel({ x: event.clientX, y: event.clientY, target: "pane" });
+                }}
+                onNodeContextMenu={(event, node) => {
+                  event.preventDefault();
+                  setSelectedId(node.id);
+                  openWheel({ x: event.clientX, y: event.clientY, target: "node", nodeId: node.id });
+                }}
+                onEdgeContextMenu={(event, edge) => {
+                  event.preventDefault();
+                  openWheel({ x: event.clientX, y: event.clientY, target: "edge", edgeId: edge.id });
                 }}
                 onNodeDragStop={(_, node) => {
                   const previous = stepsRef.current.find((step) => step.id === node.id);
@@ -827,6 +1011,7 @@ function Canvas({ projectId }: { projectId: string }) {
             ) : (
               <p className="p-6 text-base-content/60">Loading the canvas…</p>
             )}
+            {wheel ? <CanvasWheel x={wheel.x} y={wheel.y} actions={wheelActions()} onClose={() => setWheel(null)} /> : null}
             {ready && steps.length === 0 ? (
               <div className="absolute inset-0 flex items-center justify-center p-6">
                 <div className="max-w-md rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
@@ -926,6 +1111,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 <li>⌘Z / Ctrl+Z — undo</li>
                 <li>⇧⌘Z — redo</li>
                 <li>Delete / Backspace — remove selected step or link</li>
+                <li>Hold right-click — action wheel (add, link, delete…)</li>
                 <li>Esc — close the open step</li>
                 <li>? — this list</li>
               </ul>

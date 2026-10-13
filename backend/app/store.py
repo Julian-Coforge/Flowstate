@@ -4,7 +4,7 @@ import time
 import uuid
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import HttpError
@@ -176,6 +176,15 @@ def get_project_bundle(db: Session, user_id: str, project_id: str) -> dict:
 def delete_project(db: Session, user_id: str, project_id: str) -> None:
     project = owned_project(db, user_id, project_id)
     db.delete(project)
+
+
+def delete_user_data(db: Session, user_id: str) -> None:
+    uid = _uid(user_id)
+    projects = list(db.scalars(select(Project).where(Project.user_id == uid)))
+    for project in projects:
+        db.delete(project)
+    db.execute(delete(Todo).where(Todo.user_id == uid))
+    db.flush()
 
 
 def update_project(db: Session, user_id: str, project_id: str, patch: dict) -> dict:
