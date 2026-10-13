@@ -4,6 +4,14 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
 import { api } from "@/lib/api";
+import {
+  CALENDAR_PATH,
+  cachedGet,
+  invalidateLists,
+  peekCached,
+  prefetchProject,
+  PROJECTS_ALL_PATH,
+} from "@/lib/data-cache";
 import { RECURRENCE_LABEL, TASK_COLORS } from "@/lib/labels";
 import { formatMonth, todayISO } from "@/lib/tasks";
 import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
@@ -14,6 +22,9 @@ type DayItem =
   | { kind: "task"; id: string; text: string; dueDate: string; done: boolean; color: TaskColor; projectId: string | null; projectTitle: string | null; recurrence: Recurrence }
   | { kind: "step"; id: string; text: string; dueDate: string; done: boolean; color: "none"; projectId: string; projectTitle: string | null };
 
+type CalendarPayload = { todos: Todo[]; steps: CalendarStep[] };
+type ProjectsPayload = { projects: ProjectSummary[] };
+
 export default function CalendarView() {
   const [today] = useState(() => todayISO());
   const [cursor, setCursor] = useState(() => {
@@ -21,9 +32,11 @@ export default function CalendarView() {
     return { year: now.getFullYear(), month: now.getMonth() };
   });
   const [selected, setSelected] = useState(() => todayISO());
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [steps, setSteps] = useState<CalendarStep[]>([]);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const initialCalendar = peekCached<CalendarPayload>(CALENDAR_PATH);
+  const initialProjects = peekCached<ProjectsPayload>(PROJECTS_ALL_PATH)?.projects;
+  const [todos, setTodos] = useState<Todo[]>(() => initialCalendar?.todos ?? []);
+  const [steps, setSteps] = useState<CalendarStep[]>(() => initialCalendar?.steps ?? []);
+  const [projects, setProjects] = useState<ProjectSummary[]>(() => initialProjects ?? []);
   const [projectFilter, setProjectFilter] = useState("");
   const [colorFilter, setColorFilter] = useState<TaskColor | "all">("all");
   const [text, setText] = useState("");
@@ -32,10 +45,7 @@ export default function CalendarView() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      api<{ todos: Todo[]; steps: CalendarStep[] }>("/api/calendar"),
-      api<{ projects: ProjectSummary[] }>("/api/projects"),
-    ])
+    Promise.all([cachedGet<CalendarPayload>(CALENDAR_PATH), cachedGet<ProjectsPayload>(PROJECTS_ALL_PATH)])
       .then(([calendar, projectData]) => {
         setTodos(calendar.todos);
         setSteps(calendar.steps);
@@ -108,6 +118,7 @@ export default function CalendarView() {
         body: JSON.stringify({ text, dueDate: selected, recurrence: repeat, color, projectId: projectFilter || null }),
       });
       setTodos((current) => [todo, ...current]);
+      invalidateLists();
       setText("");
       setError(null);
     } catch (err) {
@@ -122,8 +133,9 @@ export default function CalendarView() {
     setTodos((current) => current.map((item) => (item.id === todo.id ? { ...item, done } : item)));
     try {
       await api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
+      invalidateLists();
       if (done && todo.recurrence && todo.recurrence !== "none") {
-        const data = await api<{ todos: Todo[]; steps: CalendarStep[] }>("/api/calendar");
+        const data = await cachedGet<CalendarPayload>(CALENDAR_PATH, { force: true });
         setTodos(data.todos);
         setSteps(data.steps);
       }
@@ -262,7 +274,13 @@ export default function CalendarView() {
                   {item.text}
                   <span className="ml-1 text-xs text-primary">step</span>
                   {item.projectTitle ? (
-                    <Link href={`/projects/${item.projectId}`} className="mt-0.5 block text-xs text-base-content/50 underline">
+                    <Link
+                      href={`/projects/${item.projectId}`}
+                      transitionTypes={["nav-forward"]}
+                      className="mt-0.5 block text-xs text-base-content/50 underline"
+                      onMouseEnter={() => prefetchProject(item.projectId)}
+                      onFocus={() => prefetchProject(item.projectId)}
+                    >
                       {item.projectTitle}
                     </Link>
                   ) : null}

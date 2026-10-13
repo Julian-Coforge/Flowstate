@@ -5,20 +5,33 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
 import DocumentUpload from "@/components/DocumentUpload";
+import {
+  CALENDAR_PATH,
+  cachedGet,
+  invalidateLists,
+  peekCached,
+  prefetchProject,
+  projectsListPath,
+} from "@/lib/data-cache";
 import { RECURRENCE_LABEL } from "@/lib/labels";
 import { addDays, formatLong, isOnTodayList, isUpcoming, todayISO } from "@/lib/tasks";
 import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
 
+type CalendarPayload = { todos: Todo[]; steps: CalendarStep[] };
+type ProjectsPayload = { projects: ProjectSummary[] };
+
 export default function Dashboard() {
   const [today] = useState(() => todayISO());
   const [query, setQuery] = useState("");
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [steps, setSteps] = useState<CalendarStep[]>([]);
+  const [projectFilter, setProjectFilter] = useState<"active" | "archived">("active");
+  const initialProjects = peekCached<ProjectsPayload>(projectsListPath("", "active"))?.projects;
+  const initialCalendar = peekCached<CalendarPayload>(CALENDAR_PATH);
+  const [projects, setProjects] = useState<ProjectSummary[]>(() => initialProjects ?? []);
+  const [todos, setTodos] = useState<Todo[]>(() => initialCalendar?.todos ?? []);
+  const [steps, setSteps] = useState<CalendarStep[]>(() => initialCalendar?.steps ?? []);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [projectFilter, setProjectFilter] = useState<"active" | "archived">("active");
-  const [activeProjects, setActiveProjects] = useState<ProjectSummary[]>([]);
+  const [activeProjects, setActiveProjects] = useState<ProjectSummary[]>(() => initialProjects ?? []);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [idea, setIdea] = useState("");
@@ -32,19 +45,27 @@ export default function Dashboard() {
   const [taskRepeat, setTaskRepeat] = useState<Recurrence>("none");
   const [taskColor, setTaskColor] = useState<TaskColor>("none");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !initialProjects);
 
   useEffect(() => {
-    api<{ enabled: boolean }>("/api/ai/status")
+    cachedGet<{ enabled: boolean }>("/api/ai/status", { freshMs: 5 * 60_000 })
       .then((data) => setAiOn(data.enabled))
       .catch(() => setAiOn(false));
   }, []);
 
   useEffect(() => {
+    const path = projectsListPath(query, projectFilter);
+    const cached = peekCached<ProjectsPayload>(path);
+    if (cached) {
+      setProjects(cached.projects);
+      if (projectFilter === "active") setActiveProjects(cached.projects);
+      setLoading(false);
+    } else if (!query) {
+      setLoading(true);
+    }
+
     const handle = setTimeout(() => {
-      api<{ projects: ProjectSummary[] }>(
-        `/api/projects?q=${encodeURIComponent(query)}&status=${projectFilter}`,
-      )
+      cachedGet<ProjectsPayload>(path)
         .then((data) => {
           setProjects(data.projects);
           if (projectFilter === "active") setActiveProjects(data.projects);
@@ -52,19 +73,27 @@ export default function Dashboard() {
         })
         .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load projects"))
         .finally(() => setLoading(false));
-    }, 200);
+    }, query ? 200 : 0);
     return () => clearTimeout(handle);
   }, [query, projectFilter]);
 
   useEffect(() => {
     if (projectFilter === "active") return;
-    api<{ projects: ProjectSummary[] }>("/api/projects?status=active")
+    const path = projectsListPath("", "active");
+    const cached = peekCached<ProjectsPayload>(path);
+    if (cached) setActiveProjects(cached.projects);
+    cachedGet<ProjectsPayload>(path)
       .then((data) => setActiveProjects(data.projects))
       .catch(() => undefined);
   }, [projectFilter]);
 
   useEffect(() => {
-    api<{ todos: Todo[]; steps: CalendarStep[] }>("/api/calendar")
+    const cached = peekCached<CalendarPayload>(CALENDAR_PATH);
+    if (cached) {
+      setTodos(cached.todos);
+      setSteps(cached.steps);
+    }
+    cachedGet<CalendarPayload>(CALENDAR_PATH)
       .then((data) => {
         setTodos(data.todos);
         setSteps(data.steps);
@@ -99,6 +128,7 @@ export default function Dashboard() {
     setDuplicating(projectId);
     try {
       const copy = await api<ProjectSummary>(`/api/projects/${projectId}/duplicate`, { method: "POST" });
+      invalidateLists();
       if (projectFilter === "active") {
         setProjects((current) => [copy, ...current]);
         setActiveProjects((current) => [copy, ...current]);
@@ -120,6 +150,7 @@ export default function Dashboard() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       });
+      invalidateLists();
       setProjects((current) => current.filter((item) => item.id !== project.id));
       if (status === "active") {
         setActiveProjects((current) => [project, ...current.filter((item) => item.id !== project.id)]);
@@ -139,6 +170,7 @@ export default function Dashboard() {
     setBusyId(project.id);
     try {
       await api(`/api/projects/${project.id}`, { method: "DELETE" });
+      invalidateLists();
       setProjects((current) => current.filter((item) => item.id !== project.id));
       setActiveProjects((current) => current.filter((item) => item.id !== project.id));
       setError(null);
@@ -169,6 +201,7 @@ export default function Dashboard() {
         if (documentFile) form.append("document", documentFile);
         await api(`/api/projects/${project.id}/generate`, { method: "POST", body: form });
       }
+      invalidateLists();
       window.location.href = `/projects/${project.id}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the project");
@@ -191,6 +224,7 @@ export default function Dashboard() {
         }),
       });
       setTodos((current) => [todo, ...current]);
+      invalidateLists();
       if (todo.projectId && !todo.done) {
         setProjects((current) =>
           current.map((project) =>
@@ -216,9 +250,11 @@ export default function Dashboard() {
     }
     try {
       await api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
+      invalidateLists();
       if (done && todo.recurrence && todo.recurrence !== "none") {
-        const data = await api<{ todos: Todo[] }>("/api/todos");
+        const data = await cachedGet<CalendarPayload>(CALENDAR_PATH, { force: true });
         setTodos(data.todos);
+        setSteps(data.steps);
       }
     } catch (err) {
       setTodos((current) => current.map((item) => (item.id === todo.id ? todo : item)));
@@ -327,7 +363,13 @@ export default function Dashboard() {
           ) : null}
           {projects.map((project) => (
             <article key={project.id} className="project-card group relative rounded-lg border border-base-300 bg-base-100">
-              <Link href={`/projects/${project.id}`} className="block p-4 pb-5">
+              <Link
+                href={`/projects/${project.id}`}
+                transitionTypes={["nav-forward"]}
+                className="block p-4 pb-5"
+                onMouseEnter={() => prefetchProject(project.id)}
+                onFocus={() => prefetchProject(project.id)}
+              >
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-semibold">{project.title}</h2>
                   {project.status === "archived" ? (
@@ -491,7 +533,13 @@ function StepRow({ step, today }: { step: CalendarStep; today: string | null }) 
         {step.title}
         <span className="ml-1 text-xs text-primary">step</span>
         {step.projectTitle ? (
-          <Link href={`/projects/${step.projectId}`} className="mt-0.5 block text-xs text-base-content/50 underline">
+          <Link
+            href={`/projects/${step.projectId}`}
+            transitionTypes={["nav-forward"]}
+            className="mt-0.5 block text-xs text-base-content/50 underline"
+            onMouseEnter={() => prefetchProject(step.projectId)}
+            onFocus={() => prefetchProject(step.projectId)}
+          >
             {step.projectTitle}
           </Link>
         ) : null}

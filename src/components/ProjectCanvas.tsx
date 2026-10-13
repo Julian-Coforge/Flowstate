@@ -28,6 +28,14 @@ import CanvasWheel, { wheelActionAtPoint, type WheelAction } from "@/components/
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
 import DocumentUpload from "@/components/DocumentUpload";
 import { api } from "@/lib/api";
+import {
+  cachedGet,
+  invalidateCached,
+  invalidateLists,
+  peekCached,
+  projectBundlePath,
+  putCached,
+} from "@/lib/data-cache";
 import { inferHandles } from "@/lib/layout";
 import { IMPORTANCE_LABEL, RECURRENCE_LABEL, STATUS_LABEL } from "@/lib/labels";
 import { progress } from "@/lib/progress";
@@ -230,12 +238,15 @@ export default function ProjectCanvas({ projectId }: { projectId: string }) {
 function Canvas({ projectId }: { projectId: string }) {
   const { fitView, screenToFlowPosition } = useReactFlow();
   const store = useStoreApi();
-  const [project, setProject] = useState<Bundle["project"] | null>(null);
-  const [steps, setSteps] = useState<FlowNode[]>([]);
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [nodes, setNodes, onNodesChange] = useNodesState<StepNode>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [ready, setReady] = useState(false);
+  const cachedBundle = peekCached<Bundle>(projectBundlePath(projectId));
+  const [project, setProject] = useState<Bundle["project"] | null>(() => cachedBundle?.project ?? null);
+  const [steps, setSteps] = useState<FlowNode[]>(() => cachedBundle?.nodes ?? []);
+  const [todos, setTodos] = useState<Todo[]>(() => cachedBundle?.todos ?? []);
+  const [nodes, setNodes, onNodesChange] = useNodesState<StepNode>(
+    cachedBundle?.nodes.map((node) => toFlowNode(node, null, null)) ?? [],
+  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(cachedBundle?.edges.map(toFlowEdge) ?? []);
+  const [ready, setReady] = useState(Boolean(cachedBundle));
   const [missing, setMissing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linkMode, setLinkMode] = useState(false);
@@ -286,7 +297,7 @@ function Canvas({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     setColorMode(readTheme());
-    api<{ enabled: boolean }>("/api/ai/status")
+    cachedGet<{ enabled: boolean }>("/api/ai/status", { freshMs: 5 * 60_000 })
       .then((data) => setAiOn(data.enabled))
       .catch(() => setAiOn(false));
     function onTheme(event: Event) {
@@ -300,15 +311,28 @@ function Canvas({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    api<Bundle>(`/api/projects/${projectId}`)
+    const cached = peekCached<Bundle>(projectBundlePath(projectId));
+    if (cached) {
+      setProject(cached.project);
+      setSteps(cached.nodes);
+      setTodos(cached.todos);
+      setNodes(cached.nodes.map((node) => toFlowNode(node, null, null)));
+      setEdges(cached.edges.map(toFlowEdge));
+      setReady(true);
+      setMissing(false);
+    } else {
+      setReady(false);
+    }
+    cachedGet<Bundle>(projectBundlePath(projectId))
       .then((data) => {
         if (cancelled) return;
         setProject(data.project);
         setSteps(data.nodes);
         setTodos(data.todos);
         setNodes(data.nodes.map((node) => toFlowNode(node, null, null)));
-        setEdges(data.edges.map((edge) => toFlowEdge(edge)));
+        setEdges(data.edges.map(toFlowEdge));
         setReady(true);
+        setMissing(false);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -387,6 +411,7 @@ function Canvas({ projectId }: { projectId: string }) {
   );
 
   function applyBundle(data: Bundle, keepSelected = false) {
+    putCached(projectBundlePath(projectId), data);
     setProject(data.project);
     setSteps(data.nodes);
     setTodos(data.todos);
@@ -939,7 +964,7 @@ function Canvas({ projectId }: { projectId: string }) {
       } else if (action.type === "delete") {
         await restoreNodes(action.nodes);
         await restoreEdges(action.edges);
-        const data = await api<Bundle>(`/api/projects/${projectId}`);
+        const data = await cachedGet<Bundle>(projectBundlePath(projectId), { force: true });
         applyBundle(data, true);
       } else if (action.type === "layout") {
         await api("/api/nodes/positions", { method: "POST", body: JSON.stringify({ positions: action.before }) });
@@ -1019,7 +1044,7 @@ function Canvas({ projectId }: { projectId: string }) {
     setTidying(true);
     const before = stepsRef.current.map((step) => ({ id: step.id, x: step.x, y: step.y }));
     try {
-      const data = await api<Bundle>(`/api/projects/${projectId}/layout`, { method: "POST" });
+      const data = await api<Bundle>(`${projectBundlePath(projectId)}/layout`, { method: "POST" });
       const after = data.nodes.map((node) => ({ id: node.id, x: node.x, y: node.y }));
       record({ type: "layout", before, after });
       applyBundle(data, true);
@@ -1099,9 +1124,10 @@ function Canvas({ projectId }: { projectId: string }) {
     setTodos((current) => current.map((item) => (item.id === todo.id ? { ...item, done } : item)));
     try {
       await api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ done }) });
+      invalidateLists();
       if (done && todo.recurrence && todo.recurrence !== "none") {
-        const data = await api<Bundle>(`/api/projects/${projectId}`);
-        setTodos(data.todos);
+        const data = await cachedGet<Bundle>(projectBundlePath(projectId), { force: true });
+        applyBundle(data, true);
       }
     } catch (err) {
       setTodos((current) => current.map((item) => (item.id === todo.id ? todo : item)));
@@ -1130,6 +1156,7 @@ function Canvas({ projectId }: { projectId: string }) {
         body: form,
       });
       applyBundle(data);
+      invalidateLists();
       setSelectedId(null);
       setIdea("");
       setDocumentFile(null);
@@ -1149,6 +1176,8 @@ function Canvas({ projectId }: { projectId: string }) {
         body: JSON.stringify({ status: next }),
       });
       setProject((current) => (current ? { ...current, status: updated.status } : current));
+      invalidateLists();
+      invalidateCached(projectBundlePath(projectId));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update the project");
@@ -1159,6 +1188,8 @@ function Canvas({ projectId }: { projectId: string }) {
     if (!confirm("Delete this project, its steps, and its tasks?")) return;
     try {
       await api(`/api/projects/${projectId}`, { method: "DELETE" });
+      invalidateLists();
+      invalidateCached(projectBundlePath(projectId));
       window.location.href = "/";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete the project");
@@ -1169,7 +1200,7 @@ function Canvas({ projectId }: { projectId: string }) {
     return (
       <main className="mx-auto max-w-lg px-4 py-16">
         <h1 className="text-3xl font-semibold">That project is not here.</h1>
-        <Link href="/" className="btn btn-primary mt-6">
+        <Link href="/" transitionTypes={["nav-back"]} className="btn btn-primary mt-6">
           Back to today
         </Link>
       </main>
