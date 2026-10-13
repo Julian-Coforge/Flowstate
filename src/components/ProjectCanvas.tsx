@@ -12,9 +12,11 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  getBezierPath,
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStoreApi,
   useUpdateNodeInternals,
   type Connection,
   type Edge,
@@ -39,6 +41,49 @@ type WheelState = {
   nodeId?: string;
   edgeId?: string;
 };
+
+type PendingRightDrag = {
+  sourceId: string;
+  originX: number;
+  originY: number;
+};
+
+type RightDragLink = {
+  sourceId: string;
+  targetId: string | null;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  sourcePosition: Position;
+  targetPosition: Position;
+};
+
+const DRAG_LINK_THRESHOLD = 28;
+
+function handleIdToPosition(handleId: string): Position {
+  switch (handleId) {
+    case "top":
+      return Position.Top;
+    case "right":
+      return Position.Right;
+    case "bottom":
+      return Position.Bottom;
+    case "left":
+      return Position.Left;
+    default:
+      return Position.Right;
+  }
+}
+
+function handleCenterOnScreen(nodeId: string, handleId: string): { x: number; y: number } | null {
+  const handle = document.querySelector(
+    `.react-flow__node[data-id="${CSS.escape(nodeId)}"] .react-flow__handle[data-handleid="${handleId}"]`,
+  );
+  if (!handle) return null;
+  const rect = handle.getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
 
 type NodePatch = Partial<Pick<FlowNode, "title" | "description" | "importance" | "notes" | "status" | "x" | "y" | "dueDate">>;
 
@@ -184,6 +229,7 @@ export default function ProjectCanvas({ projectId }: { projectId: string }) {
 
 function Canvas({ projectId }: { projectId: string }) {
   const { fitView, screenToFlowPosition } = useReactFlow();
+  const store = useStoreApi();
   const [project, setProject] = useState<Bundle["project"] | null>(null);
   const [steps, setSteps] = useState<FlowNode[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -214,6 +260,10 @@ function Canvas({ projectId }: { projectId: string }) {
   const wheelActionsRef = useRef<WheelAction[]>([]);
   const wheelFocusIdRef = useRef<string | null>(null);
   const buildWheelActionsRef = useRef<(current: WheelState) => WheelAction[]>(() => []);
+  const pendingRightDragRef = useRef<PendingRightDrag | null>(null);
+  const [rightDragLink, setRightDragLink] = useState<RightDragLink | null>(null);
+  const rightDragLinkRef = useRef<RightDragLink | null>(null);
+  const createLinkRef = useRef<(source: string, target: string) => void>(() => {});
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const stepsRef = useRef(steps);
@@ -285,14 +335,18 @@ function Canvas({ projectId }: { projectId: string }) {
             title: step.title,
             status: step.status,
             importance: step.importance,
-            linking: node.id === linkSource || node.id === wheelFocusId,
+            linking:
+              node.id === linkSource ||
+              node.id === wheelFocusId ||
+              node.id === rightDragLink?.sourceId ||
+              node.id === rightDragLink?.targetId,
             expanded,
             step,
           },
         };
       }),
     );
-  }, [steps, selectedId, linkSource, wheelFocusId, setNodes]);
+  }, [steps, selectedId, linkSource, wheelFocusId, rightDragLink, setNodes]);
 
   const previousSelectedId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
@@ -389,6 +443,55 @@ function Canvas({ projectId }: { projectId: string }) {
       if (nodeEl?.dataset.id) return nodeEl.dataset.id;
     }
     return null;
+  }
+
+  function buildRightDragLink(sourceId: string, clientX: number, clientY: number): RightDragLink | null {
+    const sourceNode = nodesRef.current.find((node) => node.id === sourceId);
+    if (!sourceNode) return null;
+    const flowPoint = screenToFlowPosition({ x: clientX, y: clientY });
+    let targetId = nodeIdAtPoint(clientX, clientY);
+    if (targetId === sourceId) targetId = null;
+    const targetNode = targetId ? nodesRef.current.find((node) => node.id === targetId) : null;
+    const inferred = targetNode
+      ? inferHandles(sourceNode.position, targetNode.position)
+      : inferHandles(sourceNode.position, flowPoint);
+    const from = handleCenterOnScreen(sourceId, inferred.sourceHandle);
+    if (!from) return null;
+    let toX = clientX;
+    let toY = clientY;
+    if (targetNode && targetId) {
+      const toHandle = handleCenterOnScreen(targetId, inferred.targetHandle);
+      if (toHandle) {
+        toX = toHandle.x;
+        toY = toHandle.y;
+      }
+    }
+    return {
+      sourceId,
+      targetId,
+      fromX: from.x,
+      fromY: from.y,
+      toX,
+      toY,
+      sourcePosition: handleIdToPosition(inferred.sourceHandle),
+      targetPosition: handleIdToPosition(inferred.targetHandle),
+    };
+  }
+
+  function clearRightDrag() {
+    rightDragLinkRef.current = null;
+    setRightDragLink(null);
+    store.getState().cancelConnection();
+  }
+
+  function startRightDrag(sourceId: string, clientX: number, clientY: number) {
+    clearHoldTimer();
+    closeWheel();
+    pendingRightDragRef.current = null;
+    const link = buildRightDragLink(sourceId, clientX, clientY);
+    if (!link) return;
+    rightDragLinkRef.current = link;
+    setRightDragLink(link);
   }
 
   const buildWheelActions = useCallback(
@@ -556,40 +659,6 @@ function Canvas({ projectId }: { projectId: string }) {
     wheelRef.current = wheel;
   }
 
-  useEffect(() => {
-    function onMove(event: PointerEvent) {
-      const current = wheelRef.current;
-      if (!current) return;
-      const actionId = wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current);
-      setHoveredWheelId(actionId);
-      // While aiming at a wheel icon, keep the focused node; otherwise pick up the box under the cursor.
-      if (!actionId && current.target !== "edge") {
-        const nodeId = nodeIdAtPoint(event.clientX, event.clientY);
-        if (nodeId) retargetWheelToNode(nodeId);
-      }
-    }
-
-    function finishRightClick(event: PointerEvent) {
-      if (event.button !== 2 && event.type !== "pointercancel") return;
-      clearHoldTimer();
-      const current = wheelRef.current;
-      if (!current) return;
-      const actionId = wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current);
-      const action = wheelActionsRef.current.find((item) => item.id === actionId);
-      if (action && !action.disabled) action.run();
-      closeWheel();
-    }
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", finishRightClick);
-    window.addEventListener("pointercancel", finishRightClick);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", finishRightClick);
-      window.removeEventListener("pointercancel", finishRightClick);
-    };
-  }, []);
-
   function onCanvasPointerDown(event: ReactPointerEvent) {
     if (event.button !== 2) return;
     event.preventDefault();
@@ -599,7 +668,11 @@ function Canvas({ projectId }: { projectId: string }) {
     const nodeEl = target.closest(".react-flow__node") as HTMLElement | null;
     const edgeEl = target.closest(".react-flow__edge") as HTMLElement | null;
     clearHoldTimer();
+    pendingRightDragRef.current = nodeEl?.dataset.id
+      ? { sourceId: nodeEl.dataset.id, originX: x, originY: y }
+      : null;
     holdTimerRef.current = window.setTimeout(() => {
+      if (rightDragLinkRef.current) return;
       if (nodeEl?.dataset.id) {
         openWheel({ x, y, target: "node", nodeId: nodeEl.dataset.id });
       } else if (edgeEl?.dataset.id) {
@@ -638,6 +711,87 @@ function Canvas({ projectId }: { projectId: string }) {
     },
     [projectId, setEdges],
   );
+
+  createLinkRef.current = (source, target) => {
+    void createLink(source, target);
+  };
+
+  useEffect(() => {
+    function onMove(event: PointerEvent) {
+      const rightHeld = (event.buttons & 2) !== 0;
+
+      if (rightDragLinkRef.current && !rightHeld) {
+        clearRightDrag();
+        return;
+      }
+
+      const pending = pendingRightDragRef.current;
+      if (pending && rightHeld) {
+        const dist = Math.hypot(event.clientX - pending.originX, event.clientY - pending.originY);
+        if (dist >= DRAG_LINK_THRESHOLD) {
+          startRightDrag(pending.sourceId, event.clientX, event.clientY);
+          return;
+        }
+      }
+
+      const drag = rightDragLinkRef.current;
+      if (drag && rightHeld) {
+        const next = buildRightDragLink(drag.sourceId, event.clientX, event.clientY);
+        if (next) {
+          rightDragLinkRef.current = next;
+          setRightDragLink(next);
+        }
+        return;
+      }
+
+      const current = wheelRef.current;
+      if (!current) return;
+      const actionId = wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current);
+      setHoveredWheelId(actionId);
+      if (!actionId && current.target !== "edge") {
+        const nodeId = nodeIdAtPoint(event.clientX, event.clientY);
+        if (nodeId) retargetWheelToNode(nodeId);
+      }
+    }
+
+    function finishRightClick(event: PointerEvent) {
+      if (event.button !== 2 && event.type !== "pointercancel") return;
+      clearHoldTimer();
+
+      const drag = rightDragLinkRef.current;
+      if (drag) {
+        if (drag.targetId) createLinkRef.current(drag.sourceId, drag.targetId);
+        clearRightDrag();
+        pendingRightDragRef.current = null;
+        closeWheel();
+        return;
+      }
+
+      pendingRightDragRef.current = null;
+      const current = wheelRef.current;
+      if (!current) return;
+      const actionId = wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current);
+      const action = wheelActionsRef.current.find((item) => item.id === actionId);
+      if (action && !action.disabled) action.run();
+      closeWheel();
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finishRightClick);
+    window.addEventListener("pointercancel", finishRightClick);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finishRightClick);
+      window.removeEventListener("pointercancel", finishRightClick);
+      clearRightDrag();
+    };
+  }, [screenToFlowPosition, store]);
+
+  useEffect(() => {
+    return () => {
+      store.getState().cancelConnection();
+    };
+  }, [store]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -1093,6 +1247,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 nodeTypes={nodeTypes}
                 connectionMode={ConnectionMode.Loose}
                 connectionLineType={ConnectionLineType.Bezier}
+                nodesConnectable
                 defaultEdgeOptions={{ type: "default", style: { strokeWidth: 2 } }}
                 onNodeClick={(event, node) => {
                   if (event.button !== 0) return;
@@ -1139,6 +1294,25 @@ function Canvas({ projectId }: { projectId: string }) {
             ) : (
               <p className="p-6 text-base-content/60">Loading the canvas…</p>
             )}
+            {rightDragLink ? (
+              <svg className="pointer-events-none fixed inset-0 z-[4]" aria-hidden>
+                <path
+                  d={
+                    getBezierPath({
+                      sourceX: rightDragLink.fromX,
+                      sourceY: rightDragLink.fromY,
+                      sourcePosition: rightDragLink.sourcePosition,
+                      targetX: rightDragLink.toX,
+                      targetY: rightDragLink.toY,
+                      targetPosition: rightDragLink.targetPosition,
+                    })[0]
+                  }
+                  fill="none"
+                  className="react-flow__connection-path"
+                  strokeWidth={2}
+                />
+              </svg>
+            ) : null}
             {wheel ? (
               <CanvasWheel
                 x={wheel.x}
@@ -1243,7 +1417,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 <li>⇧⌘Z — redo</li>
                 <li>Delete / Backspace — remove selected step or link</li>
                 <li>Hold right-click — action wheel; hover a step to target it for link/delete</li>
-                <li>Release over Link, then click the other step to connect</li>
+                <li>Right-click drag from one step onto another — same link line as the dots; release to connect</li>
                 <li>Esc — close the open step</li>
                 <li>? — this list</li>
               </ul>
