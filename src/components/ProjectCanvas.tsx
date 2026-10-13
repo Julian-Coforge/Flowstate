@@ -93,7 +93,9 @@ function handleCenterOnScreen(nodeId: string, handleId: string): { x: number; y:
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
 
-type NodePatch = Partial<Pick<FlowNode, "title" | "description" | "importance" | "notes" | "status" | "x" | "y" | "dueDate">>;
+type NodePatch = Partial<
+  Pick<FlowNode, "title" | "description" | "importance" | "notes" | "status" | "x" | "y" | "dueDate" | "recurrence">
+>;
 
 type HistoryAction =
   | { type: "add-node"; node: FlowNode }
@@ -189,7 +191,14 @@ function StepCard({ data, id }: NodeProps<StepNode>) {
       <NodeHandles />
       <div className="text-sm font-semibold leading-snug">{data.title}</div>
       <div className="mt-1 text-[11px] uppercase tracking-wide text-base-content/50">{STATUS_LABEL[data.status]}</div>
-      {data.step?.dueDate ? <div className="mt-1 text-[11px] text-base-content/50">{data.step.dueDate}</div> : null}
+      {data.step?.dueDate ? (
+        <div className="mt-1 text-[11px] text-base-content/50">
+          {data.step.dueDate}
+          {data.step.recurrence && data.step.recurrence !== "none" ? ` · ${RECURRENCE_LABEL[data.step.recurrence]}` : ""}
+        </div>
+      ) : data.step?.recurrence && data.step.recurrence !== "none" ? (
+        <div className="mt-1 text-[11px] text-primary">{RECURRENCE_LABEL[data.step.recurrence]}</div>
+      ) : null}
     </div>
   );
 }
@@ -920,6 +929,7 @@ function Canvas({ projectId }: { projectId: string }) {
           notes: node.notes,
           status: node.status,
           dueDate: node.dueDate,
+          recurrence: node.recurrence ?? "none",
         }),
       });
       for (const item of node.checklist) {
@@ -1209,8 +1219,8 @@ function Canvas({ projectId }: { projectId: string }) {
 
   return (
     <CanvasApiContext.Provider value={canvasApi}>
-      <div className="flex h-[calc(100svh-4rem)] flex-col">
-        <div className="flex flex-wrap items-center gap-2 overflow-x-auto border-b border-base-300 bg-base-100 px-3 py-2">
+      <div className="canvas-shell flex h-[calc(100svh-4rem)] flex-col">
+        <div className="app-header flex flex-wrap items-center gap-2 overflow-x-auto border-b border-base-300 bg-base-100/95 px-3 py-2 backdrop-blur-md">
           <div className="mr-auto min-w-0">
             <h1 className="flex items-center gap-2 truncate text-lg font-semibold">
               <span className="truncate">{project?.title ?? "Project"}</span>
@@ -1385,7 +1395,7 @@ function Canvas({ projectId }: { projectId: string }) {
               </div>
             ) : null}
           </div>
-          <aside className="w-full max-lg:max-h-[36vh] overflow-y-auto border-t border-base-300 bg-base-100 p-4 lg:w-80 lg:border-t-0 lg:border-l">
+          <aside className="panel w-full max-lg:max-h-[36vh] overflow-y-auto border-t border-base-300 bg-base-100 p-4 lg:w-80 lg:border-t-0 lg:border-l">
             <h2 className="text-lg font-semibold">Project tasks</h2>
             {project?.description ? <p className="mt-1 text-sm text-base-content/70">{project.description}</p> : null}
             <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2.5">
@@ -1586,15 +1596,31 @@ function InlineEditor({ step }: { step: FlowNode }) {
           </select>
         </label>
       </div>
-      <label className="mt-3 block text-sm">
-        Due date
-        <input
-          className="input mt-1 w-full"
-          type="date"
-          value={step.dueDate ?? ""}
-          onChange={(event) => void patchStep(step.id, { dueDate: event.target.value || null })}
-        />
-      </label>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label className="text-sm">
+          Due date
+          <input
+            className="input mt-1 w-full"
+            type="date"
+            value={step.dueDate ?? ""}
+            onChange={(event) => void patchStep(step.id, { dueDate: event.target.value || null })}
+          />
+        </label>
+        <label className="text-sm">
+          Repeat
+          <select
+            className="select mt-1 w-full"
+            value={step.recurrence ?? "none"}
+            onChange={(event) => void patchStep(step.id, { recurrence: event.target.value as FlowNode["recurrence"] })}
+          >
+            {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <label className="mt-3 block text-sm">
         Notes
         <textarea

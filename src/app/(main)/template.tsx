@@ -1,6 +1,8 @@
 import { ViewTransition } from "react";
 
 export default function MainTemplate({ children }: { children: React.ReactNode }) {
+  // Exit is skipped: animating the project canvas snapshot is expensive and leaves a
+  // lingering old-page layer that bleeds into the next navigation.
   return (
     <ViewTransition
       enter={{
@@ -8,11 +10,7 @@ export default function MainTemplate({ children }: { children: React.ReactNode }
         "nav-back": "nav-back",
         default: "page-in",
       }}
-      exit={{
-        "nav-forward": "nav-forward",
-        "nav-back": "nav-back",
-        default: "page-out",
-      }}
+      exit="none"
       default="none"
     >
       {children}

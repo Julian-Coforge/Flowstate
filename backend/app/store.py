@@ -48,6 +48,7 @@ def serialize_node(node: Node) -> dict:
         "x": node.x,
         "y": node.y,
         "dueDate": node.due_date.isoformat() if node.due_date else None,
+        "recurrence": node.recurrence or "none",
         "checklist": [serialize_check(item) for item in checks],
     }
 
@@ -220,11 +221,13 @@ def create_node(
     notes: str = "",
     status: str = "todo",
     due_date: str | None = None,
+    recurrence: str = "none",
 ) -> dict:
     owned_project(db, user_id, project_id)
     nid = _uid(node_id) if node_id else uuid.uuid4()
     if node_id and db.get(Node, nid):
         raise HttpError("That step already exists", 409)
+    cadence = recurrence if recurrence in {"none", "daily", "weekly", "monthly"} else "none"
     node = Node(
         id=nid,
         project_id=_uid(project_id),
@@ -236,6 +239,7 @@ def create_node(
         x=x,
         y=y,
         due_date=_date(due_date),
+        recurrence=cadence,
     )
     db.add(node)
     db.flush()
@@ -246,6 +250,7 @@ def create_node(
 
 def update_node(db: Session, user_id: str, node_id: str, patch: dict) -> dict:
     node = owned_node(db, user_id, node_id)
+    becoming_done = patch.get("status") == "done" and node.status != "done"
     mapping = {
         "title": "title",
         "description": "description",
@@ -260,6 +265,20 @@ def update_node(db: Session, user_id: str, node_id: str, patch: dict) -> dict:
             setattr(node, column, patch[key])
     if "dueDate" in patch:
         node.due_date = _date(patch["dueDate"])
+    if "recurrence" in patch and patch["recurrence"] is not None:
+        cadence = patch["recurrence"]
+        node.recurrence = cadence if cadence in {"none", "daily", "weekly", "monthly"} else "none"
+    if becoming_done:
+        cadence = node.recurrence or "none"
+        nxt = next_occurrence(
+            node.due_date.isoformat() if node.due_date else None,
+            cadence,
+            today_iso(),
+        )
+        if nxt:
+            # Habit steps roll forward in place so the canvas stays tidy.
+            node.status = "todo"
+            node.due_date = _date(nxt)
     db.flush()
     db.refresh(node)
     return serialize_node(node) if node.checklist is not None else {**serialize_node(node), "checklist": []}
@@ -483,6 +502,11 @@ def insert_generated_plan(db: Session, user_id: str, project_id: str, nodes: lis
             x=node["x"],
             y=node["y"],
             due_date=_date(node.get("dueDate")),
+            recurrence=(
+                node.get("recurrence")
+                if node.get("recurrence") in {"none", "daily", "weekly", "monthly"}
+                else "none"
+            ),
         )
         db.add(row)
         db.flush()
@@ -548,6 +572,7 @@ def list_calendar(db: Session, user_id: str) -> dict:
             "status": node.status,
             "dueDate": node.due_date.isoformat() if node.due_date else None,
             "importance": node.importance,
+            "recurrence": node.recurrence or "none",
         }
         for node in nodes
     ]
@@ -624,6 +649,7 @@ def duplicate_project(db: Session, user_id: str, project_id: str) -> dict:
                 x=node.x,
                 y=node.y,
                 due_date=node.due_date,
+                recurrence=node.recurrence or "none",
             )
         )
         db.flush()

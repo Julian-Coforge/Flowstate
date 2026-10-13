@@ -79,7 +79,7 @@ def build_prompt(
         + "\n"
         "Schema:\n"
         "{\n"
-        '  "nodes": [{"key":"pack","title":"...","description":"...","importance":"low|medium|high","checklist":["..."],"dueDate":"YYYY-MM-DD"}],\n'
+        '  "nodes": [{"key":"pack","title":"...","description":"...","importance":"low|medium|high","checklist":["..."],"dueDate":"YYYY-MM-DD","recurrence":"none|daily|weekly|monthly"}],\n'
         '  "edges": [{"from":"pack","to":"fly"}],\n'
         '  "todos": [{"text":"...","nodeKey":"pack","dueDate":"YYYY-MM-DD","recurrence":"none|daily|weekly|monthly"}]\n'
         "}\n"
@@ -88,8 +88,9 @@ def build_prompt(
         "- Put concrete dates on nodes and todos whenever the idea or document mentions timing.\n"
         "- dueDate must be ISO YYYY-MM-DD, or null if undated.\n"
         "- Preparation steps belong BEFORE the deadline; submission lands ON the deadline.\n"
-        "- For repeating reminders (daily/weekly/monthly / every Monday), create ONE todo with recurrence set and dueDate = first occurrence.\n"
-        "- Phrases like \"every Monday\", \"daily\", or \"weekly\" MUST become a todo with recurrence weekly/daily/monthly — never a one-off task.\n"
+        "- For repeating / weekly / daily / monthly plans, set recurrence on the relevant nodes AND matching todos, with dueDate = first occurrence.\n"
+        "- Phrases like \"every Monday\", \"daily\", \"weekly plan\", or \"monthly\" MUST set recurrence — never leave those as one-off undated steps.\n"
+        "- When hard recurrence anchors are provided, every node should use that recurrence and dueDate unless it is clearly a one-off setup step.\n"
         f"{doc_rules}"
         "General rules:\n"
         "- keys must be unique short slugs\n"

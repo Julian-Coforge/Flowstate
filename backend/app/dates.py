@@ -311,9 +311,13 @@ def apply_recurrence_anchors(
     todos = [dict(todo) for todo in plan_todos]
     label = anchors.get("recurrenceLabel") or recurrence
 
+    # Deadline-driven assignment plans stay one-off; habit prompts stamp step cadence.
+    habit_mode = "deadline" not in anchors
     for node in nodes:
         if not node.get("dueDate"):
             node["dueDate"] = due
+        if habit_mode and node.get("recurrence") in {None, "none"}:
+            node["recurrence"] = recurrence
 
     updated = False
     for todo in todos:

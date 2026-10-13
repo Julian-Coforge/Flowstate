@@ -20,7 +20,7 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type DayItem =
   | { kind: "task"; id: string; text: string; dueDate: string; done: boolean; color: TaskColor; projectId: string | null; projectTitle: string | null; recurrence: Recurrence }
-  | { kind: "step"; id: string; text: string; dueDate: string; done: boolean; color: "none"; projectId: string; projectTitle: string | null };
+  | { kind: "step"; id: string; text: string; dueDate: string; done: boolean; color: "none"; projectId: string; projectTitle: string | null; recurrence: Recurrence };
 
 type CalendarPayload = { todos: Todo[]; steps: CalendarStep[] };
 type ProjectsPayload = { projects: ProjectSummary[] };
@@ -85,6 +85,7 @@ export default function CalendarView() {
           color: "none",
           projectId: step.projectId,
           projectTitle: step.projectTitle,
+          recurrence: step.recurrence ?? "none",
         });
       }
     }
@@ -197,7 +198,7 @@ export default function CalendarView() {
         </p>
       ) : null}
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-base-300 bg-base-100">
+      <div className="panel mt-6 overflow-hidden rounded-lg border border-base-300 bg-base-100">
         <div className="grid grid-cols-7 border-b border-base-300 text-xs uppercase tracking-wide text-base-content/50">
           {WEEKDAYS.map((day) => (
             <div key={day} className="px-2 py-2">
@@ -239,7 +240,7 @@ export default function CalendarView() {
         </div>
       </div>
 
-      <section className="mt-6 rounded-lg border border-base-300 bg-base-100 p-4">
+      <section className="panel surface-card mt-6 rounded-lg border border-base-300 bg-base-100 p-4">
         <h2 className="text-lg font-semibold">{selected}</h2>
         <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
           <input
@@ -273,6 +274,7 @@ export default function CalendarView() {
                 <span className={item.done ? "text-base-content/50 line-through" : ""}>
                   {item.text}
                   <span className="ml-1 text-xs text-primary">step</span>
+                  {item.recurrence !== "none" ? <span className="ml-1 text-xs text-primary">repeat</span> : null}
                   {item.projectTitle ? (
                     <Link
                       href={`/projects/${item.projectId}`}

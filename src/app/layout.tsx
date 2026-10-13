@@ -39,7 +39,7 @@ const themeBootScript = `
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning className={`${display.variable} ${sans.variable}`}>
-      <body className="min-h-screen bg-base-200 text-base-content antialiased">
+      <body className="min-h-screen text-base-content antialiased">
         <Script id="theme-boot" strategy="beforeInteractive">
           {themeBootScript}
         </Script>

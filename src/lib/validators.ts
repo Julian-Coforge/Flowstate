@@ -38,6 +38,7 @@ export const nodePatchSchema = z
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
     dueDate: dateField.optional(),
+    recurrence: z.enum(["none", "daily", "weekly", "monthly"]).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "Nothing to update" });
 

@@ -22,6 +22,7 @@ export type FlowNode = {
   x: number;
   y: number;
   dueDate: string | null;
+  recurrence: Recurrence;
   checklist: ChecklistItem[];
 };
 
@@ -42,6 +43,7 @@ export type CalendarStep = {
   status: NodeStatus;
   dueDate: string | null;
   importance: Importance;
+  recurrence: Recurrence;
 };
 
 export type Todo = {

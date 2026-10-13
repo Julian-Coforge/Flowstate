@@ -37,6 +37,7 @@ class Node(Base):
     x: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     y: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    recurrence: Mapped[str] = mapped_column(String, nullable=False, default="none")
 
     project: Mapped[Project] = relationship(back_populates="nodes")
     checklist: Mapped[list["ChecklistItem"]] = relationship(back_populates="node", cascade="all, delete-orphan")

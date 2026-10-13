@@ -50,7 +50,7 @@ export default function AppHeader() {
 
   return (
     <>
-      <header className="navbar min-h-16 w-full border-b border-base-300 bg-base-100/95 px-3 shadow-sm backdrop-blur sm:px-5">
+      <header className="app-header navbar sticky top-0 z-30 min-h-16 w-full border-b border-base-300 bg-base-100/90 px-3 backdrop-blur-md sm:px-5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           <Link
             href="/"

@@ -13,8 +13,10 @@
   --color-success: #1e7f5c;
   --color-success-content: #ffffff;
   --color-warning: #b7691a;
-  --radius-field: 0.35rem;
-  --radius-box: 0.65rem;
+  --radius-field: 0.45rem;
+  --radius-box: 0.7rem;
+  --depth: 1;
+  --border: 1px;
 }
 @plugin "daisyui/theme" {
   name: "dark";
@@ -28,8 +30,10 @@
   --color-success: #4ade80;
   --color-success-content: #052e16;
   --color-warning: #fbbf24;
-  --radius-field: 0.35rem;
-  --radius-box: 0.65rem;
+  --radius-field: 0.45rem;
+  --radius-box: 0.7rem;
+  --depth: 1;
+  --border: 1px;
 }
 
 html {
@@ -43,39 +47,164 @@ h3,
   font-family: var(--font-display), "Helvetica Neue", Arial, sans-serif;
 }
 
+:root,
+[data-theme="light"] {
+  --shade-ink: 20 34 32;
+  --shade-lift: 0 1px 0 rgb(255 255 255 / 70%), 0 1px 2px rgb(var(--shade-ink) / 4%), 0 8px 22px rgb(var(--shade-ink) / 5%);
+  --shade-lift-hover: 0 1px 0 rgb(255 255 255 / 80%), 0 10px 28px rgb(var(--shade-ink) / 8%);
+  --shade-panel: 0 1px 0 rgb(255 255 255 / 65%), 0 1px 2px rgb(var(--shade-ink) / 4%), 0 6px 18px rgb(var(--shade-ink) / 4%);
+  --shade-header: 0 1px 0 rgb(255 255 255 / 55%), 0 8px 24px rgb(var(--shade-ink) / 6%);
+  --page-wash:
+    radial-gradient(ellipse 90% 55% at 50% -8%, color-mix(in oklab, var(--color-primary) 10%, transparent), transparent 58%),
+    radial-gradient(ellipse 70% 45% at 100% 0%, color-mix(in oklab, var(--color-base-content) 4%, transparent), transparent 52%),
+    linear-gradient(180deg, color-mix(in oklab, var(--color-base-100) 55%, var(--color-base-200)), var(--color-base-200) 42%);
+}
+
+[data-theme="dark"] {
+  --shade-ink: 0 0 0;
+  --shade-lift: 0 1px 0 rgb(255 255 255 / 4%), 0 1px 2px rgb(0 0 0 / 35%), 0 10px 28px rgb(0 0 0 / 28%);
+  --shade-lift-hover: 0 1px 0 rgb(255 255 255 / 6%), 0 14px 34px rgb(0 0 0 / 42%);
+  --shade-panel: 0 1px 0 rgb(255 255 255 / 4%), 0 1px 2px rgb(0 0 0 / 30%), 0 8px 22px rgb(0 0 0 / 26%);
+  --shade-header: 0 1px 0 rgb(255 255 255 / 4%), 0 10px 28px rgb(0 0 0 / 35%);
+  --page-wash:
+    radial-gradient(ellipse 90% 55% at 50% -8%, color-mix(in oklab, var(--color-primary) 14%, transparent), transparent 58%),
+    radial-gradient(ellipse 65% 40% at 100% 0%, rgb(0 0 0 / 35%), transparent 55%),
+    linear-gradient(180deg, color-mix(in oklab, var(--color-base-100) 40%, var(--color-base-200)), var(--color-base-200) 48%);
+}
+
+body {
+  background-color: var(--color-base-200);
+  background-image: var(--page-wash);
+}
+
 .react-flow__handle {
   width: 12px;
   height: 12px;
 }
 
-/* Tactile controls */
+/* Keep React Flow out of named morph pairs; the page VT still crossfades the shell. */
+.canvas-shell,
+.canvas-shell .react-flow {
+  contain: layout paint;
+}
+
+.app-header {
+  box-shadow: var(--shade-header);
+}
+
+.panel {
+  box-shadow: var(--shade-panel);
+}
+
+/* Buttons — soft depth, clear hierarchy, less “flat game UI” */
 .btn {
+  letter-spacing: 0.01em;
+  font-weight: 600;
   transition:
-    transform 140ms ease,
-    box-shadow 140ms ease,
-    background-color 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease;
+    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    filter 160ms ease;
 }
 
-.btn:not(:disabled):hover {
-  transform: translateY(-1px);
+.btn:not(.btn-ghost, .btn-link, .btn-outline, .btn-dash, :disabled, [disabled]) {
+  --btn-shadow:
+    0 1px 0 color-mix(in oklab, #fff calc(var(--depth) * 55%), transparent),
+    0 1px 2px rgb(var(--shade-ink) / 6%),
+    0 4px 12px rgb(var(--shade-ink) / 7%);
+  --btn-inset: inset 0 1px 0 color-mix(in oklab, #fff calc(var(--depth) * 28%), transparent);
 }
 
-.btn:not(:disabled):active {
-  transform: translateY(1px);
+.btn:not(.btn-ghost, .btn-link, .btn-outline, .btn-dash, :disabled, [disabled]):hover {
+  translate: 0 -1px;
+  --btn-shadow:
+    0 1px 0 color-mix(in oklab, #fff calc(var(--depth) * 65%), transparent),
+    0 6px 16px rgb(var(--shade-ink) / 10%);
 }
 
-.btn-primary:not(:disabled) {
-  box-shadow: 0 1px 0 rgb(20 34 32 / 12%), 0 4px 12px rgb(39 71 240 / 22%);
+.btn:not(.btn-ghost, .btn-link, .btn-outline, .btn-dash, :disabled, [disabled]):active {
+  translate: 0 0.5px;
+  --btn-inset: inset 0 1px 2px rgb(var(--shade-ink) / 12%);
+  --btn-shadow: 0 1px 2px rgb(var(--shade-ink) / 6%);
 }
 
-.btn-primary:not(:disabled):hover {
-  box-shadow: 0 1px 0 rgb(20 34 32 / 10%), 0 8px 18px rgb(39 71 240 / 28%);
+.btn-primary:not(:disabled, [disabled]) {
+  --btn-shadow:
+    0 1px 0 color-mix(in oklab, #fff 22%, transparent),
+    0 1px 2px rgb(39 71 240 / 18%),
+    0 6px 16px rgb(39 71 240 / 24%);
+  --btn-inset: inset 0 1px 0 color-mix(in oklab, #fff 26%, transparent);
+  text-shadow: 0 1px 0 rgb(16 22 44 / 18%);
 }
 
-.btn-ghost:not(:disabled):hover {
-  background-color: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+.btn-primary:not(:disabled, [disabled]):hover {
+  --btn-shadow:
+    0 1px 0 color-mix(in oklab, #fff 28%, transparent),
+    0 2px 4px rgb(39 71 240 / 16%),
+    0 10px 22px rgb(39 71 240 / 30%);
+  filter: brightness(1.03);
+}
+
+.btn-ghost:not(:disabled, [disabled]) {
+  --btn-bg: color-mix(in oklab, var(--color-base-100) 72%, transparent);
+  --btn-border: color-mix(in oklab, var(--color-base-content) 10%, var(--color-base-300));
+  --btn-shadow: 0 1px 0 rgb(255 255 255 / 45%), 0 1px 2px rgb(var(--shade-ink) / 4%);
+  --btn-inset: inset 0 1px 0 rgb(255 255 255 / 55%);
+  color: color-mix(in oklab, var(--color-base-content) 88%, transparent);
+}
+
+.btn-ghost:not(:disabled, [disabled]):hover {
+  --btn-bg: var(--color-base-100);
+  --btn-border: color-mix(in oklab, var(--color-primary) 28%, var(--color-base-300));
+  color: var(--color-primary);
+  translate: 0 -0.5px;
+  --btn-shadow: 0 1px 0 rgb(255 255 255 / 70%), 0 4px 12px rgb(var(--shade-ink) / 7%);
+}
+
+.btn-ghost:not(:disabled, [disabled]):active {
+  translate: 0 0;
+  --btn-inset: inset 0 1px 2px rgb(var(--shade-ink) / 10%);
+  --btn-shadow: none;
+}
+
+.btn-link {
+  font-weight: 500;
+  text-underline-offset: 0.18em;
+}
+
+.btn-link:hover {
+  color: color-mix(in oklab, var(--color-primary) 85%, var(--color-base-content));
+}
+
+[data-theme="dark"] .btn:not(.btn-ghost, .btn-link, .btn-outline, .btn-dash, :disabled, [disabled]) {
+  --btn-shadow:
+    0 1px 0 rgb(255 255 255 / 5%),
+    0 1px 2px rgb(0 0 0 / 35%),
+    0 6px 16px rgb(0 0 0 / 28%);
+  --btn-inset: inset 0 1px 0 rgb(255 255 255 / 7%);
+}
+
+[data-theme="dark"] .btn-primary:not(:disabled, [disabled]) {
+  --btn-shadow:
+    0 1px 0 rgb(255 255 255 / 10%),
+    0 1px 2px rgb(0 0 0 / 35%),
+    0 8px 18px rgb(142 162 255 / 18%);
+  text-shadow: none;
+}
+
+[data-theme="dark"] .btn-ghost:not(:disabled, [disabled]) {
+  --btn-bg: color-mix(in oklab, var(--color-base-100) 55%, transparent);
+  --btn-border: color-mix(in oklab, var(--color-base-content) 14%, var(--color-base-300));
+  --btn-shadow: 0 1px 0 rgb(255 255 255 / 4%), 0 1px 2px rgb(0 0 0 / 28%);
+  --btn-inset: inset 0 1px 0 rgb(255 255 255 / 5%);
+}
+
+[data-theme="dark"] .btn-ghost:not(:disabled, [disabled]):hover {
+  --btn-bg: var(--color-base-100);
+  --btn-border: color-mix(in oklab, var(--color-primary) 35%, var(--color-base-300));
+  --btn-shadow: 0 1px 0 rgb(255 255 255 / 6%), 0 6px 16px rgb(0 0 0 / 35%);
 }
 
 .input,
@@ -114,6 +243,7 @@ h3,
 }
 
 .surface-card {
+  box-shadow: var(--shade-lift);
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -123,13 +253,14 @@ h3,
 
 .surface-card:hover {
   border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-base-300));
-  box-shadow: 0 8px 24px rgb(20 34 32 / 6%);
+  box-shadow: var(--shade-lift-hover);
   transform: translateY(-1px);
 }
 
 .project-card {
   z-index: 0;
   overflow: hidden;
+  box-shadow: var(--shade-lift);
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
@@ -140,20 +271,12 @@ h3,
 .project-card:hover {
   z-index: 2;
   border-color: color-mix(in oklab, var(--color-primary) 50%, var(--color-base-300));
-  box-shadow: 0 14px 32px rgb(20 34 32 / 10%);
+  box-shadow: var(--shade-lift-hover);
   transform: scale(1.035);
 }
 
 [data-theme="dark"] .btn-primary:not(:disabled) {
   box-shadow: 0 1px 0 rgb(0 0 0 / 35%), 0 4px 14px rgb(142 162 255 / 18%);
-}
-
-[data-theme="dark"] .surface-card:hover {
-  box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
-}
-
-[data-theme="dark"] .project-card:hover {
-  box-shadow: 0 16px 36px rgb(0 0 0 / 35%);
 }
 
 .file-drop {
@@ -219,17 +342,39 @@ h3,
   transition:
     color 140ms ease,
     background-color 140ms ease,
-    transform 140ms ease;
+    transform 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.nav-link.btn-ghost {
+  --btn-bg: transparent;
+  --btn-border: transparent;
+  --btn-shadow: none;
+  --btn-inset: 0 0 0 0 transparent;
+}
+
+.nav-link.btn-ghost:hover {
+  --btn-bg: color-mix(in oklab, var(--color-primary) 8%, transparent);
+  --btn-border: transparent;
+  --btn-shadow: none;
+  color: var(--color-primary);
+  translate: none;
 }
 
 .nav-link:hover {
   color: var(--color-primary);
 }
 
-/* Page transitions — header stays live; only route content animates */
+/* Page transitions — header stays live; only incoming route content animates */
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
+}
+
+::view-transition-group(*) {
+  animation-duration: 220ms;
+  animation-timing-function: ease-out;
 }
 
 @keyframes page-fade {
@@ -243,7 +388,7 @@ h3,
 
 @keyframes page-rise {
   from {
-    translate: 0 10px;
+    translate: 0 8px;
   }
   to {
     translate: 0 0;
@@ -252,57 +397,36 @@ h3,
 
 @keyframes page-slide {
   from {
-    translate: var(--slide-offset, 28px) 0;
+    translate: var(--slide-offset, 20px) 0;
   }
   to {
     translate: 0 0;
   }
 }
 
-::view-transition-old(.page-out) {
-  animation: 160ms ease-in both page-fade reverse;
-}
-
 ::view-transition-new(.page-in) {
   animation:
-    220ms ease-out 80ms both page-fade,
-    280ms ease-out both page-rise;
-}
-
-::view-transition-old(.nav-forward) {
-  --slide-offset: -36px;
-  animation:
-    150ms ease-in both page-fade reverse,
-    280ms ease-in-out both page-slide reverse;
+    200ms ease-out both page-fade,
+    240ms ease-out both page-rise;
 }
 
 ::view-transition-new(.nav-forward) {
-  --slide-offset: 36px;
+  --slide-offset: 24px;
   animation:
-    220ms ease-out 70ms both page-fade,
-    320ms ease-in-out both page-slide;
-}
-
-::view-transition-old(.nav-back) {
-  --slide-offset: 36px;
-  animation:
-    150ms ease-in both page-fade reverse,
-    280ms ease-in-out both page-slide reverse;
+    200ms ease-out both page-fade,
+    260ms ease-out both page-slide;
 }
 
 ::view-transition-new(.nav-back) {
-  --slide-offset: -36px;
+  --slide-offset: -24px;
   animation:
-    220ms ease-out 70ms both page-fade,
-    320ms ease-in-out both page-slide;
+    200ms ease-out both page-fade,
+    260ms ease-out both page-slide;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(.page-out),
   ::view-transition-new(.page-in),
-  ::view-transition-old(.nav-forward),
   ::view-transition-new(.nav-forward),
-  ::view-transition-old(.nav-back),
   ::view-transition-new(.nav-back) {
     animation: none;
   }

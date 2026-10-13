@@ -102,6 +102,7 @@ def test_every_monday_recurrence():
     todos = [{"text": "Swim once", "nodeKey": "swim", "dueDate": "2026-10-20", "recurrence": "none"}]
     fixed_nodes, fixed_todos = apply_recurrence_anchors(nodes, todos, anchors, idea)
     assert fixed_nodes[0]["dueDate"] == "2026-10-12"
+    assert fixed_nodes[0]["recurrence"] == "weekly"
     assert any(todo["recurrence"] == "weekly" and todo["dueDate"] == "2026-10-12" for todo in fixed_todos)
 
 

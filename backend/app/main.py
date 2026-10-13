@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Query, UploadFile
 from fastapi.exceptions import HTTPException, RequestValidationError
@@ -9,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user
 from app.config import get_settings
-from app.db import get_db
+from app.db import get_db, get_engine
 from app.documents import extract_document_text
 from app.errors import HttpError, http_error_handler, http_exception_handler
 from app.generate import check_rate_limit, generate_plan
@@ -29,7 +31,25 @@ from app.schemas import (
 )
 from app import store
 
-app = FastAPI(title="Flowstate API")
+
+def ensure_schema() -> None:
+    """Apply lightweight additive migrations for existing databases."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("alter table nodes add column if not exists recurrence text not null default 'none'"))
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        ensure_schema()
+    except Exception:
+        # Tests / fresh create_all may not need this; ignore if table missing yet.
+        pass
+    yield
+
+
+app = FastAPI(title="Flowstate API", lifespan=lifespan)
 settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
@@ -179,6 +199,7 @@ def create_node(body: NodeCreate, user: CurrentUser = Depends(get_current_user),
         body.notes,
         body.status,
         body.dueDate,
+        body.recurrence,
     )
 
 

@@ -290,7 +290,7 @@ export default function Dashboard() {
             </button>
           </div>
           {aiOn ? (
-            <div className="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+            <div className="panel surface-card rounded-lg border border-base-300 bg-base-100 p-4">
               <label className="block text-sm font-medium">
                 Generate a plan
                 <textarea
@@ -428,7 +428,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <aside className="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+      <aside className="panel surface-card rounded-lg border border-base-300 bg-base-100 p-4">
         <h2 className="text-lg font-semibold">Today</h2>
         <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2.5">
           <input
@@ -532,6 +532,11 @@ function StepRow({ step, today }: { step: CalendarStep; today: string | null }) 
       <span className={step.status === "done" ? "text-base-content/50 line-through" : ""}>
         {step.title}
         <span className="ml-1 text-xs text-primary">step</span>
+        {step.recurrence && step.recurrence !== "none" ? (
+          <span className="ml-1 inline-block text-xs text-primary" title={RECURRENCE_LABEL[step.recurrence]}>
+            repeat
+          </span>
+        ) : null}
         {step.projectTitle ? (
           <Link
             href={`/projects/${step.projectId}`}

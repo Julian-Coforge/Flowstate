@@ -72,7 +72,7 @@ export default function LoginPage() {
         <h1 className="mt-3 text-4xl font-semibold tracking-tight">Your day, your projects, one place.</h1>
         <p className="mt-3 text-base-content/70">A planner for what is due, and a canvas for how the work fits together.</p>
 
-        <form onSubmit={(event) => void submit(event)} className="mt-8 rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+        <form onSubmit={(event) => void submit(event)} className="panel surface-card mt-8 rounded-lg border border-base-300 bg-base-100 p-5">
           <div className="mb-4 flex gap-2">
             <button type="button" className={`btn btn-sm ${mode === "sign-in" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("sign-in")}>
               Sign in

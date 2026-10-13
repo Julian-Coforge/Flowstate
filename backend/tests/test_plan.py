@@ -54,15 +54,17 @@ def test_plan_rejects_empty_nodes():
         validate_plan(plan, "quick")
 
 
-def test_plan_rejects_repeating_todo_without_date():
+def test_plan_allows_repeating_todo_without_date():
+    # Missing due dates are filled later by apply_recurrence_anchors.
     payload = {
         "nodes": [{"key": "shop", "title": "Shop", "description": "", "importance": "medium", "checklist": []}],
         "edges": [],
         "todos": [{"text": "Weekly shopping", "recurrence": "weekly"}],
     }
     plan = Plan.model_validate(payload)
-    with pytest.raises(ValueError, match="start date"):
-        validate_plan(plan, "quick")
+    validate_plan(plan, "quick")
+    assert plan.todos[0].dueDate is None
+    assert plan.todos[0].recurrence == "weekly"
 
 
 def test_plan_rejects_bad_edge():

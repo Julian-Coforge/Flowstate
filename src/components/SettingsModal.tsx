@@ -108,7 +108,7 @@ export default function SettingsModal({ open, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-base-content/40 p-4 pt-[10vh]" role="dialog" aria-modal="true" aria-label="Settings">
       <button className="absolute inset-0 cursor-default" type="button" aria-label="Close settings" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
+      <div className="panel relative z-10 w-full max-w-md rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">Settings</h2>
           <button className="btn btn-ghost btn-sm" type="button" onClick={onClose}>

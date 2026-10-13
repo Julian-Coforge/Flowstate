@@ -51,6 +51,7 @@ class NodeCreate(BaseModel):
     notes: str = Field(default="", max_length=20000)
     status: NodeStatus = "todo"
     dueDate: str | None = None
+    recurrence: Recurrence = "none"
 
     @field_validator("title")
     @classmethod
@@ -73,6 +74,7 @@ class NodePatch(BaseModel):
     x: float | None = None
     y: float | None = None
     dueDate: str | None = None
+    recurrence: Recurrence | None = None
 
     @field_validator("dueDate")
     @classmethod
@@ -181,6 +183,7 @@ class PlanNode(BaseModel):
     importance: Importance = "medium"
     checklist: list[str] = Field(default_factory=list, max_length=12)
     dueDate: str | None = None
+    recurrence: Recurrence = "none"
 
     @field_validator("dueDate")
     @classmethod
@@ -239,8 +242,7 @@ def validate_plan(plan: Plan, mode: GenerateMode, *, has_document: bool = False)
     for todo in plan.todos:
         if todo.nodeKey and todo.nodeKey not in key_set:
             raise ValueError("A task points at a missing step")
-        if todo.recurrence != "none" and not todo.dueDate:
-            raise ValueError("A repeating task needs a start date")
+        # Missing due dates on repeating items are filled by apply_recurrence_anchors.
     return plan
 
 
