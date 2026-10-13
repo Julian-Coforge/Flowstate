@@ -24,6 +24,55 @@ export function formatMonth(year: number, monthIndex: number) {
   return new Date(year, monthIndex, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
+export function formatYear(year: number) {
+  return String(year);
+}
+
+/** Monday-start week containing `iso`. */
+export function startOfWeek(iso: string) {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  const offset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - offset);
+  return todayISO(date);
+}
+
+export function formatWeekRange(startIso: string) {
+  const endIso = addDays(startIso, 6);
+  const [sy, sm, sd] = startIso.split("-").map(Number);
+  const [ey, em, ed] = endIso.split("-").map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+  if (sy === ey && sm === em) {
+    const month = start.toLocaleDateString("en-GB", { month: "long" });
+    return `${sd}–${ed} ${month} ${sy}`;
+  }
+  if (sy === ey) {
+    const startMonth = start.toLocaleDateString("en-GB", { month: "short" });
+    const endMonth = end.toLocaleDateString("en-GB", { month: "short" });
+    return `${sd} ${startMonth} – ${ed} ${endMonth} ${sy}`;
+  }
+  const startMonth = start.toLocaleDateString("en-GB", { month: "short" });
+  const endMonth = end.toLocaleDateString("en-GB", { month: "short" });
+  return `${sd} ${startMonth} ${sy} – ${ed} ${endMonth} ${ey}`;
+}
+
+export function shiftMonth(iso: string, delta: number) {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(year, month - 1 + delta, 1);
+  const maxDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(Math.min(day, maxDay));
+  return todayISO(date);
+}
+
+export function shiftYear(iso: string, delta: number) {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(year + delta, month - 1, 1);
+  const maxDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(Math.min(day, maxDay));
+  return todayISO(date);
+}
+
 type Dated = { done: boolean; dueDate: string | null };
 
 export function isOnTodayList(task: Dated, today: string) {

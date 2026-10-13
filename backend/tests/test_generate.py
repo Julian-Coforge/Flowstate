@@ -113,3 +113,16 @@ def test_generate_plan_surfaces_openai_quota_error():
             generate_plan(settings, "Plant a garden", "quick")
     assert exc.value.status == 502
     assert "credits" in exc.value.message.lower()
+
+
+def test_generate_plan_surfaces_connection_error():
+    from openai import APIConnectionError
+    import httpx
+
+    settings = Settings(openai_api_key="sk-test")
+    err = APIConnectionError(request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+    with patch("app.generate.call_openai", side_effect=err):
+        with pytest.raises(HttpError) as exc:
+            generate_plan(settings, "Plant a garden", "quick")
+    assert exc.value.status == 502
+    assert "connect" in exc.value.message.lower()

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addDays, isOnTodayList, isOverdue, isUpcoming, todayISO } from "./tasks";
+import {
+  addDays,
+  formatWeekRange,
+  isOnTodayList,
+  isOverdue,
+  isUpcoming,
+  shiftMonth,
+  startOfWeek,
+  todayISO,
+} from "./tasks";
 
 test("today's list includes tasks due today, overdue open tasks, and undated open tasks", () => {
   const today = "2026-10-12";
@@ -33,4 +42,10 @@ test("isOverdue is true for open work past its due date", () => {
   assert.equal(isOverdue({ status: "done", dueDate: "2026-10-11" }, today), false);
   assert.equal(isOverdue({ done: false, dueDate: today }, today), false);
   assert.equal(isOverdue({ done: false, dueDate: null }, today), false);
+});
+
+test("startOfWeek is Monday and formatWeekRange reads clearly", () => {
+  assert.equal(startOfWeek("2026-10-14"), "2026-10-12");
+  assert.equal(formatWeekRange("2026-10-12"), "12–18 October 2026");
+  assert.equal(shiftMonth("2026-01-31", 1), "2026-02-28");
 });

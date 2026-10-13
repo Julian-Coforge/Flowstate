@@ -164,8 +164,16 @@ def call_openai(
 
 
 def _openai_user_message(exc: Exception) -> str:
+    import logging
+
     try:
-        from openai import APIStatusError, AuthenticationError, RateLimitError
+        from openai import (
+            APIConnectionError,
+            APIStatusError,
+            APITimeoutError,
+            AuthenticationError,
+            RateLimitError,
+        )
     except ImportError:
         return "Could not reach the planner"
 
@@ -177,8 +185,16 @@ def _openai_user_message(exc: Exception) -> str:
         if code in {"insufficient_quota", "credit_balance_exhausted"} or "credit" in str(exc).lower():
             return "OpenAI has no credits left. Add billing at platform.openai.com."
         return "OpenAI rate-limited the request. Wait a moment and try again."
+    if isinstance(exc, APITimeoutError):
+        return "The planner timed out. Try Quick mode or a shorter idea."
+    if isinstance(exc, APIConnectionError):
+        return "Could not connect to OpenAI. Check your network or VPN, then try again."
     if isinstance(exc, APIStatusError):
+        status = getattr(exc, "status_code", None)
+        if status == 404:
+            return "That AI model is not available. Check AI_MODEL_QUICK in .env."
         return "OpenAI could not complete the request. Try again shortly."
+    logging.getLogger(__name__).exception("Unexpected planner failure: %s", type(exc).__name__)
     return "Could not reach the planner"
 
 

@@ -13,10 +13,23 @@ import {
   PROJECTS_ALL_PATH,
 } from "@/lib/data-cache";
 import { RECURRENCE_LABEL, TASK_COLORS } from "@/lib/labels";
-import { formatMonth, isOverdue, todayISO } from "@/lib/tasks";
+import {
+  addDays,
+  formatMonth,
+  formatWeekRange,
+  formatYear,
+  isOverdue,
+  shiftMonth,
+  shiftYear,
+  startOfWeek,
+  todayISO,
+} from "@/lib/tasks";
 import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+type CalendarViewMode = "week" | "month" | "year";
 
 type DayItem =
   | { kind: "task"; id: string; text: string; dueDate: string; done: boolean; color: TaskColor; projectId: string | null; projectTitle: string | null; recurrence: Recurrence }
@@ -27,10 +40,8 @@ type ProjectsPayload = { projects: ProjectSummary[] };
 
 export default function CalendarView() {
   const [today] = useState(() => todayISO());
-  const [cursor, setCursor] = useState(() => {
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() };
-  });
+  const [view, setView] = useState<CalendarViewMode>("month");
+  const [anchor, setAnchor] = useState(() => todayISO());
   const [selected, setSelected] = useState(() => todayISO());
   const initialCalendar = peekCached<CalendarPayload>(CALENDAR_PATH);
   const initialProjects = peekCached<ProjectsPayload>(PROJECTS_ALL_PATH)?.projects;
@@ -92,7 +103,6 @@ export default function CalendarView() {
     return list;
   }, [todos, steps, projectFilter, colorFilter]);
 
-  const cells = useMemo(() => monthCells(cursor.year, cursor.month), [cursor]);
   const byDay = useMemo(() => {
     const map = new Map<string, DayItem[]>();
     for (const item of items) {
@@ -102,13 +112,47 @@ export default function CalendarView() {
     }
     return map;
   }, [items]);
+
+  const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
+  const monthCells = useMemo(() => {
+    const [year, month] = anchor.split("-").map(Number);
+    return buildMonthCells(year, month - 1);
+  }, [anchor]);
+  const yearMonths = useMemo(() => {
+    const year = Number(anchor.slice(0, 4));
+    return Array.from({ length: 12 }, (_, month) => ({
+      month,
+      label: MONTH_SHORT[month]!,
+      cells: buildMonthCells(year, month),
+    }));
+  }, [anchor]);
+
+  const title =
+    view === "week"
+      ? formatWeekRange(weekStart)
+      : view === "year"
+        ? formatYear(Number(anchor.slice(0, 4)))
+        : formatMonth(Number(anchor.slice(0, 4)), Number(anchor.slice(5, 7)) - 1);
+
   const selectedItems = byDay.get(selected) ?? [];
 
+  function selectDay(iso: string) {
+    setSelected(iso);
+    setAnchor(iso);
+  }
+
   function shift(delta: number) {
-    setCursor((current) => {
-      const date = new Date(current.year, current.month + delta, 1);
-      return { year: date.getFullYear(), month: date.getMonth() };
+    setAnchor((current) => {
+      if (view === "week") return addDays(current, delta * 7);
+      if (view === "year") return shiftYear(current, delta);
+      return shiftMonth(current, delta);
     });
+  }
+
+  function goToday() {
+    setAnchor(today);
+    setSelected(today);
   }
 
   async function addTask(event: FormEvent) {
@@ -150,8 +194,25 @@ export default function CalendarView() {
     <main className="mx-auto w-full max-w-5xl px-4 py-8">
       <p className="text-sm font-medium uppercase tracking-[0.14em] text-primary">Calendar</p>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-4xl font-semibold tracking-tight">{formatMonth(cursor.year, cursor.month)}</h1>
-        <div className="flex gap-2">
+        <h1 className="text-4xl font-semibold tracking-tight">{title}</h1>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex gap-1 rounded-lg border border-base-300 bg-base-100 p-0.5" role="tablist" aria-label="Calendar view">
+            {(["week", "month", "year"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={view === mode}
+                className={`btn btn-xs capitalize ${view === mode ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setView(mode)}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-sm" type="button" onClick={goToday}>
+            Today
+          </button>
           <button className="btn btn-sm" type="button" onClick={() => shift(-1)}>
             Previous
           </button>
@@ -198,47 +259,152 @@ export default function CalendarView() {
         </p>
       ) : null}
 
-      <div className="panel mt-6 overflow-hidden rounded-lg border border-base-300 bg-base-100">
-        <div className="grid grid-cols-7 border-b border-base-300 text-xs uppercase tracking-wide text-base-content/50">
-          {WEEKDAYS.map((day) => (
-            <div key={day} className="px-2 py-2">
-              {day}
-            </div>
-          ))}
+      {view === "week" ? (
+        <div className="panel mt-6 overflow-hidden rounded-lg border border-base-300 bg-base-100">
+          <div className="grid grid-cols-7 border-b border-base-300 text-xs uppercase tracking-wide text-base-content/50">
+            {WEEKDAYS.map((day, index) => (
+              <div key={day} className="px-2 py-2">
+                {day}
+                <span className="mt-0.5 block text-[11px] normal-case tracking-normal text-base-content/40">
+                  {weekDays[index]!.slice(8)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {weekDays.map((iso) => {
+              const dayItems = byDay.get(iso) ?? [];
+              const isToday = iso === today;
+              const isSelected = iso === selected;
+              const overdue = iso < today && dayItems.some((item) => !item.done);
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  onClick={() => selectDay(iso)}
+                  className={`min-h-40 border-t border-r border-base-200 p-2 text-left last:border-r-0 ${isSelected ? "bg-primary/10" : "hover:bg-base-200"} ${overdue ? "text-warning" : ""}`}
+                >
+                  <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-sm ${isToday ? "bg-primary text-primary-content" : ""}`}>
+                    {Number(iso.slice(8))}
+                  </span>
+                  <ul className="mt-2 grid gap-1">
+                    {dayItems.slice(0, 5).map((item) => (
+                      <li
+                        key={`${item.kind}-${item.id}`}
+                        className={`truncate text-[11px] leading-snug ${item.done ? "text-base-content/40 line-through" : "text-base-content/80"}`}
+                        title={item.text}
+                      >
+                        {item.kind === "step" ? (
+                          <span className="mr-1 inline-block h-1.5 w-1.5 rotate-45 bg-primary align-middle" />
+                        ) : item.color !== "none" ? (
+                          <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${TASK_COLORS[item.color].swatch}`} />
+                        ) : null}
+                        {item.text}
+                      </li>
+                    ))}
+                    {dayItems.length > 5 ? <li className="text-[11px] text-base-content/50">+{dayItems.length - 5} more</li> : null}
+                  </ul>
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="grid grid-cols-7">
-          {cells.map((cell, index) => {
-            if (!cell.iso) return <div key={`empty-${index}`} className="min-h-20 border-t border-base-200 bg-base-200/40" />;
-            const dayItems = byDay.get(cell.iso) ?? [];
-            const isToday = cell.iso === today;
-            const isSelected = cell.iso === selected;
-            const overdue = cell.iso < today && dayItems.some((item) => !item.done);
+      ) : null}
+
+      {view === "month" ? (
+        <div className="panel mt-6 overflow-hidden rounded-lg border border-base-300 bg-base-100">
+          <div className="grid grid-cols-7 border-b border-base-300 text-xs uppercase tracking-wide text-base-content/50">
+            {WEEKDAYS.map((day) => (
+              <div key={day} className="px-2 py-2">
+                {day}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {monthCells.map((cell, index) => {
+              if (!cell.iso) return <div key={`empty-${index}`} className="min-h-20 border-t border-base-200 bg-base-200/40" />;
+              const dayItems = byDay.get(cell.iso) ?? [];
+              const isToday = cell.iso === today;
+              const isSelected = cell.iso === selected;
+              const overdue = cell.iso < today && dayItems.some((item) => !item.done);
+              return (
+                <button
+                  key={cell.iso}
+                  type="button"
+                  onClick={() => selectDay(cell.iso!)}
+                  className={`min-h-20 border-t border-base-200 p-2 text-left ${isSelected ? "bg-primary/10" : "hover:bg-base-200"} ${overdue ? "text-warning" : ""}`}
+                >
+                  <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-sm ${isToday ? "bg-primary text-primary-content" : ""}`}>
+                    {cell.day}
+                  </span>
+                  <span className="mt-1 flex flex-wrap gap-0.5">
+                    {dayItems.slice(0, 6).map((item) =>
+                      item.kind === "step" ? (
+                        <span key={`step-${item.id}`} className="h-1.5 w-1.5 rotate-45 bg-primary" title={item.text} />
+                      ) : item.color && item.color !== "none" ? (
+                        <span key={item.id} className={`h-1.5 w-1.5 rounded-full ${TASK_COLORS[item.color].swatch}`} />
+                      ) : (
+                        <span key={item.id} className="h-1.5 w-1.5 rounded-full bg-base-content/30" />
+                      ),
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {view === "year" ? (
+        <div className="panel mt-6 grid gap-4 rounded-lg border border-base-300 bg-base-100 p-4 sm:grid-cols-2 lg:grid-cols-3">
+          {yearMonths.map(({ month, label, cells }) => {
+            const monthIso = `${anchor.slice(0, 4)}-${String(month + 1).padStart(2, "0")}-01`;
             return (
-              <button
-                key={cell.iso}
-                type="button"
-                onClick={() => setSelected(cell.iso!)}
-                className={`min-h-20 border-t border-base-200 p-2 text-left ${isSelected ? "bg-primary/10" : "hover:bg-base-200"} ${overdue ? "text-warning" : ""}`}
-              >
-                <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-sm ${isToday ? "bg-primary text-primary-content" : ""}`}>
-                  {cell.day}
-                </span>
-                <span className="mt-1 flex flex-wrap gap-0.5">
-                  {dayItems.slice(0, 6).map((item) =>
-                    item.kind === "step" ? (
-                      <span key={`step-${item.id}`} className="h-1.5 w-1.5 rotate-45 bg-primary" title={item.text} />
-                    ) : item.color && item.color !== "none" ? (
-                      <span key={item.id} className={`h-1.5 w-1.5 rounded-full ${TASK_COLORS[item.color].swatch}`} />
-                    ) : (
-                      <span key={item.id} className="h-1.5 w-1.5 rounded-full bg-base-content/30" />
-                    ),
-                  )}
-                </span>
-              </button>
+              <section key={label} className="min-w-0">
+                <button
+                  type="button"
+                  className="mb-2 text-sm font-semibold text-primary hover:underline"
+                  onClick={() => {
+                    setAnchor(monthIso);
+                    setView("month");
+                  }}
+                >
+                  {label}
+                </button>
+                <div className="grid grid-cols-7 gap-px text-[10px] uppercase tracking-wide text-base-content/40">
+                  {WEEKDAYS.map((day) => (
+                    <div key={day} className="py-0.5 text-center">
+                      {day[0]}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-px">
+                  {cells.map((cell, index) => {
+                    if (!cell.iso) return <div key={`empty-${month}-${index}`} className="aspect-square" />;
+                    const dayItems = byDay.get(cell.iso) ?? [];
+                    const isToday = cell.iso === today;
+                    const isSelected = cell.iso === selected;
+                    const hasOpen = dayItems.some((item) => !item.done);
+                    const overdue = cell.iso < today && hasOpen;
+                    return (
+                      <button
+                        key={cell.iso}
+                        type="button"
+                        onClick={() => selectDay(cell.iso!)}
+                        className={`aspect-square rounded-sm text-[11px] ${isSelected ? "bg-primary/15" : "hover:bg-base-200"} ${overdue ? "text-warning" : ""} ${isToday ? "font-semibold text-primary" : ""}`}
+                        title={dayItems.length ? `${dayItems.length} due` : undefined}
+                      >
+                        {cell.day}
+                        {hasOpen ? <span className="mx-auto mt-0.5 block h-1 w-1 rounded-full bg-current opacity-70" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             );
           })}
         </div>
-      </div>
+      ) : null}
 
       <section className="panel surface-card mt-6 rounded-lg border border-base-300 bg-base-100 p-4">
         <h2 className="text-lg font-semibold">{selected}</h2>
@@ -315,7 +481,7 @@ export default function CalendarView() {
   );
 }
 
-function monthCells(year: number, month: number) {
+function buildMonthCells(year: number, month: number) {
   const first = new Date(year, month, 1);
   const startOffset = (first.getDay() + 6) % 7;
   const days = new Date(year, month + 1, 0).getDate();
