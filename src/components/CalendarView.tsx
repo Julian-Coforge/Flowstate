@@ -13,6 +13,7 @@ import {
   PROJECTS_ALL_PATH,
 } from "@/lib/data-cache";
 import { RECURRENCE_LABEL, TASK_COLORS } from "@/lib/labels";
+import { useFormDraft } from "@/lib/form-drafts";
 import {
   addDays,
   formatMonth,
@@ -50,9 +51,16 @@ export default function CalendarView() {
   const [projects, setProjects] = useState<ProjectSummary[]>(() => initialProjects ?? []);
   const [projectFilter, setProjectFilter] = useState("");
   const [colorFilter, setColorFilter] = useState<TaskColor | "all">("all");
-  const [text, setText] = useState("");
-  const [repeat, setRepeat] = useState<Recurrence>("none");
-  const [color, setColor] = useState<TaskColor>("none");
+  const [taskDraft, setTaskDraft, clearTaskDraft] = useFormDraft<{
+    text: string;
+    repeat: Recurrence;
+    color: TaskColor;
+  }>("calendar:task", {
+    text: "",
+    repeat: "none",
+    color: "none",
+  });
+  const { text, repeat, color } = taskDraft;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,7 +172,7 @@ export default function CalendarView() {
       });
       setTodos((current) => [todo, ...current]);
       invalidateLists();
-      setText("");
+      clearTaskDraft();
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add the task");
@@ -413,11 +421,16 @@ export default function CalendarView() {
             className="input w-full"
             placeholder="Add a task for this day"
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => setTaskDraft({ text: event.target.value })}
             aria-label="Add a task for this day"
             required
           />
-          <select className="select" value={repeat} onChange={(event) => setRepeat(event.target.value as Recurrence)} aria-label="Repeat">
+          <select
+            className="select"
+            value={repeat}
+            onChange={(event) => setTaskDraft({ repeat: event.target.value as Recurrence })}
+            aria-label="Repeat"
+          >
             {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -428,7 +441,7 @@ export default function CalendarView() {
             Add
           </button>
           <div className="mt-1 mb-0.5 sm:col-span-3">
-            <ColorPicker value={color} onChange={setColor} />
+            <ColorPicker value={color} onChange={(color) => setTaskDraft({ color })} />
           </div>
         </form>
         <ul className="mt-4 grid gap-2">

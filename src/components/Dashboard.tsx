@@ -14,11 +14,28 @@ import {
   projectsListPath,
 } from "@/lib/data-cache";
 import { RECURRENCE_LABEL } from "@/lib/labels";
+import { useFormDraft } from "@/lib/form-drafts";
 import { addDays, formatLong, isOnTodayList, isOverdue, isUpcoming, todayISO } from "@/lib/tasks";
 import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
 
 type CalendarPayload = { todos: Todo[]; steps: CalendarStep[] };
 type ProjectsPayload = { projects: ProjectSummary[] };
+
+type CreateDraft = {
+  title: string;
+  description: string;
+  idea: string;
+  documentFile: File | null;
+  mode: "quick" | "thinking";
+};
+
+type TaskDraft = {
+  taskText: string;
+  taskDate: string;
+  taskProject: string;
+  taskRepeat: Recurrence;
+  taskColor: TaskColor;
+};
 
 export default function Dashboard() {
   const [today] = useState(() => todayISO());
@@ -32,18 +49,24 @@ export default function Dashboard() {
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [activeProjects, setActiveProjects] = useState<ProjectSummary[]>(() => initialProjects ?? []);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [idea, setIdea] = useState("");
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
-  const [mode, setMode] = useState<"quick" | "thinking">("quick");
+  const [create, setCreate, clearCreate] = useFormDraft<CreateDraft>("dashboard:create", {
+    title: "",
+    description: "",
+    idea: "",
+    documentFile: null,
+    mode: "quick",
+  });
+  const { title, description, idea, documentFile, mode } = create;
+  const [task, setTask, clearTaskText] = useFormDraft<TaskDraft>("dashboard:task", {
+    taskText: "",
+    taskDate: todayISO(),
+    taskProject: "",
+    taskRepeat: "none",
+    taskColor: "none",
+  });
+  const { taskText, taskDate, taskProject, taskRepeat, taskColor } = task;
   const [aiOn, setAiOn] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [taskText, setTaskText] = useState("");
-  const [taskDate, setTaskDate] = useState(() => todayISO());
-  const [taskProject, setTaskProject] = useState("");
-  const [taskRepeat, setTaskRepeat] = useState<Recurrence>("none");
-  const [taskColor, setTaskColor] = useState<TaskColor>("none");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => !initialProjects);
 
@@ -201,6 +224,7 @@ export default function Dashboard() {
         if (documentFile) form.append("document", documentFile);
         await api(`/api/projects/${project.id}/generate`, { method: "POST", body: form });
       }
+      clearCreate();
       invalidateLists();
       window.location.href = `/projects/${project.id}`;
     } catch (err) {
@@ -232,7 +256,7 @@ export default function Dashboard() {
           ),
         );
       }
-      setTaskText("");
+      clearTaskText();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add the task");
     }
@@ -274,7 +298,7 @@ export default function Dashboard() {
               className="input w-full min-w-0"
               placeholder="New project name"
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => setCreate({ title: event.target.value })}
               aria-label="New project name"
               required
             />
@@ -282,7 +306,7 @@ export default function Dashboard() {
               className="input w-full min-w-0"
               placeholder="What's it for?"
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => setCreate({ description: event.target.value })}
               aria-label="Project description"
             />
             <button className="btn btn-primary" type="submit" disabled={creating}>
@@ -299,16 +323,20 @@ export default function Dashboard() {
                   maxLength={500}
                   placeholder="e.g. Holiday starting next Monday, or weekly shopping from 12 November"
                   value={idea}
-                  onChange={(event) => setIdea(event.target.value)}
+                  onChange={(event) => setCreate({ idea: event.target.value })}
                   aria-label="Generate a plan from this idea"
                 />
               </label>
-              <DocumentUpload file={documentFile} onChange={setDocumentFile} />
+              <DocumentUpload file={documentFile} onChange={(file) => setCreate({ documentFile: file })} />
               <div className="mt-3 flex gap-2">
-                <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("quick")}>
+                <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setCreate({ mode: "quick" })}>
                   Quick
                 </button>
-                <button type="button" className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("thinking")}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`}
+                  onClick={() => setCreate({ mode: "thinking" })}
+                >
                   Thinking
                 </button>
               </div>
@@ -438,13 +466,24 @@ export default function Dashboard() {
             className="input w-full"
             placeholder="Add a task"
             value={taskText}
-            onChange={(event) => setTaskText(event.target.value)}
+            onChange={(event) => setTask({ taskText: event.target.value })}
             aria-label="Add a task"
             required
           />
           <div className="flex gap-2">
-            <input className="input w-full" type="date" value={taskDate} onChange={(event) => setTaskDate(event.target.value)} aria-label="Due date" />
-            <select className="select w-full" value={taskProject} onChange={(event) => setTaskProject(event.target.value)} aria-label="Project">
+            <input
+              className="input w-full"
+              type="date"
+              value={taskDate}
+              onChange={(event) => setTask({ taskDate: event.target.value })}
+              aria-label="Due date"
+            />
+            <select
+              className="select w-full"
+              value={taskProject}
+              onChange={(event) => setTask({ taskProject: event.target.value })}
+              aria-label="Project"
+            >
               <option value="">No project</option>
               {activeProjects.map((project) => (
                 <option key={project.id} value={project.id}>
@@ -453,7 +492,12 @@ export default function Dashboard() {
               ))}
             </select>
           </div>
-          <select className="select w-full" value={taskRepeat} onChange={(event) => setTaskRepeat(event.target.value as Recurrence)} aria-label="Repeat">
+          <select
+            className="select w-full"
+            value={taskRepeat}
+            onChange={(event) => setTask({ taskRepeat: event.target.value as Recurrence })}
+            aria-label="Repeat"
+          >
             {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -461,7 +505,7 @@ export default function Dashboard() {
             ))}
           </select>
           <div className="mt-2 mb-1">
-            <ColorPicker value={taskColor} onChange={setTaskColor} />
+            <ColorPicker value={taskColor} onChange={(taskColor) => setTask({ taskColor })} />
           </div>
           <button className="btn btn-primary btn-sm" type="submit">
             Add task

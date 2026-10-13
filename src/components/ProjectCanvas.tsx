@@ -40,6 +40,7 @@ import {
 } from "@/lib/data-cache";
 import { inferHandles } from "@/lib/layout";
 import { IMPORTANCE_LABEL, RECURRENCE_LABEL, STATUS_LABEL } from "@/lib/labels";
+import { useFormDraft } from "@/lib/form-drafts";
 import { progress } from "@/lib/progress";
 import { isOverdue, todayISO } from "@/lib/tasks";
 import { readTheme, type Theme } from "@/lib/theme";
@@ -290,16 +291,31 @@ function Canvas({ projectId }: { projectId: string }) {
   const [linkMode, setLinkMode] = useState(false);
   const [linkSource, setLinkSource] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [taskText, setTaskText] = useState("");
-  const [taskDate, setTaskDate] = useState("");
-  const [taskRepeat, setTaskRepeat] = useState<Recurrence>("none");
-  const [taskColor, setTaskColor] = useState<TaskColor>("none");
+  const [taskDraft, setTaskDraft, clearTaskDraft] = useFormDraft<{
+    taskText: string;
+    taskDate: string;
+    taskRepeat: Recurrence;
+    taskColor: TaskColor;
+  }>(`project:${projectId}:task`, {
+    taskText: "",
+    taskDate: "",
+    taskRepeat: "none",
+    taskColor: "none",
+  });
+  const { taskText, taskDate, taskRepeat, taskColor } = taskDraft;
   const [help, setHelp] = useState(false);
   const [colorMode, setColorMode] = useState<"light" | "dark">("light");
   const [aiOn, setAiOn] = useState(false);
-  const [idea, setIdea] = useState("");
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
-  const [mode, setMode] = useState<"quick" | "thinking">("quick");
+  const [generateDraft, setGenerateDraft, clearGenerateDraft] = useFormDraft<{
+    idea: string;
+    documentFile: File | null;
+    mode: "quick" | "thinking";
+  }>(`project:${projectId}:generate`, {
+    idea: "",
+    documentFile: null,
+    mode: "quick",
+  });
+  const { idea, documentFile, mode } = generateDraft;
   const [generating, setGenerating] = useState(false);
   const [wheel, setWheel] = useState<WheelState | null>(null);
   const [hoveredWheelId, setHoveredWheelId] = useState<string | null>(null);
@@ -1168,7 +1184,7 @@ function Canvas({ projectId }: { projectId: string }) {
         }),
       });
       setTodos((current) => [todo, ...current]);
-      setTaskText("");
+      clearTaskDraft();
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add the task");
@@ -1219,8 +1235,7 @@ function Canvas({ projectId }: { projectId: string }) {
       historyRef.current = { past: [], future: [] };
       setCanUndo(false);
       setCanRedo(false);
-      setIdea("");
-      setDocumentFile(null);
+      clearGenerateDraft();
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate a plan");
@@ -1465,14 +1480,22 @@ function Canvas({ projectId }: { projectId: string }) {
                         maxLength={500}
                         placeholder="e.g. Holiday starting next Monday, or weekly shopping from 12 November"
                         value={idea}
-                        onChange={(event) => setIdea(event.target.value)}
+                        onChange={(event) => setGenerateDraft({ idea: event.target.value })}
                       />
-                      <DocumentUpload file={documentFile} onChange={setDocumentFile} />
+                      <DocumentUpload file={documentFile} onChange={(file) => setGenerateDraft({ documentFile: file })} />
                       <div className="flex gap-2">
-                        <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("quick")}>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`}
+                          onClick={() => setGenerateDraft({ mode: "quick" })}
+                        >
                           Quick
                         </button>
-                        <button type="button" className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("thinking")}>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`}
+                          onClick={() => setGenerateDraft({ mode: "thinking" })}
+                        >
                           Thinking
                         </button>
                         <button className="btn btn-primary btn-sm ml-auto" type="submit" disabled={generating}>
@@ -1497,7 +1520,7 @@ function Canvas({ projectId }: { projectId: string }) {
                     type="button"
                     className={`btn btn-xs ${mode === "quick" ? "btn-primary" : "btn-ghost border border-base-300 bg-base-100"}`}
                     disabled={generating}
-                    onClick={() => setMode("quick")}
+                    onClick={() => setGenerateDraft({ mode: "quick" })}
                   >
                     Quick
                   </button>
@@ -1505,7 +1528,7 @@ function Canvas({ projectId }: { projectId: string }) {
                     type="button"
                     className={`btn btn-xs ${mode === "thinking" ? "btn-primary" : "btn-ghost border border-base-300 bg-base-100"}`}
                     disabled={generating}
-                    onClick={() => setMode("thinking")}
+                    onClick={() => setGenerateDraft({ mode: "thinking" })}
                   >
                     Thinking
                   </button>
@@ -1546,13 +1569,24 @@ function Canvas({ projectId }: { projectId: string }) {
                 className="input w-full"
                 placeholder="Add a task"
                 value={taskText}
-                onChange={(event) => setTaskText(event.target.value)}
+                onChange={(event) => setTaskDraft({ taskText: event.target.value })}
                 aria-label="Add a project task"
                 required
               />
               <div className="flex gap-2">
-                <input className="input w-full" type="date" value={taskDate} onChange={(event) => setTaskDate(event.target.value)} aria-label="Due date" />
-                <select className="select w-full" value={taskRepeat} onChange={(event) => setTaskRepeat(event.target.value as Recurrence)} aria-label="Repeat">
+                <input
+                  className="input w-full"
+                  type="date"
+                  value={taskDate}
+                  onChange={(event) => setTaskDraft({ taskDate: event.target.value })}
+                  aria-label="Due date"
+                />
+                <select
+                  className="select w-full"
+                  value={taskRepeat}
+                  onChange={(event) => setTaskDraft({ taskRepeat: event.target.value as Recurrence })}
+                  aria-label="Repeat"
+                >
                   {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
                     <option key={value} value={value}>
                       {label}
@@ -1561,7 +1595,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 </select>
               </div>
               <div className="mt-2 mb-1">
-                <ColorPicker value={taskColor} onChange={setTaskColor} />
+                <ColorPicker value={taskColor} onChange={(taskColor) => setTaskDraft({ taskColor })} />
               </div>
               <button className="btn btn-primary btn-sm" type="submit">
                 Add
