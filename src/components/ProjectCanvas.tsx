@@ -22,7 +22,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import CanvasWheel, { type WheelAction } from "@/components/CanvasWheel";
+import CanvasWheel, { wheelActionAtPoint, type WheelAction } from "@/components/CanvasWheel";
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
 import { api } from "@/lib/api";
 import { inferHandles } from "@/lib/layout";
@@ -206,7 +206,10 @@ function Canvas({ projectId }: { projectId: string }) {
   const [mode, setMode] = useState<"quick" | "thinking">("quick");
   const [generating, setGenerating] = useState(false);
   const [wheel, setWheel] = useState<WheelState | null>(null);
+  const [hoveredWheelId, setHoveredWheelId] = useState<string | null>(null);
   const holdTimerRef = useRef<number | null>(null);
+  const wheelRef = useRef<WheelState | null>(null);
+  const wheelActionsRef = useRef<WheelAction[]>([]);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const stepsRef = useRef(steps);
@@ -353,124 +356,185 @@ function Canvas({ projectId }: { projectId: string }) {
     }
   }
 
-  function openWheel(state: WheelState) {
+  function closeWheel() {
     clearHoldTimer();
-    setWheel(state);
+    wheelRef.current = null;
+    wheelActionsRef.current = [];
+    setHoveredWheelId(null);
+    setWheel(null);
   }
 
-  function wheelActions(): WheelAction[] {
-    if (!wheel) return [];
-    if (wheel.target === "node" && wheel.nodeId) {
-      const nodeId = wheel.nodeId;
+  const buildWheelActions = useCallback(
+    (current: WheelState): WheelAction[] => {
+      if (current.target === "node" && current.nodeId) {
+        const nodeId = current.nodeId;
+        return [
+          {
+            id: "add",
+            label: "Add step",
+            icon: "add",
+            run: () => {
+              const point = screenToFlowPosition({ x: current.x, y: current.y });
+              void addStep({ x: point.x + 40, y: point.y + 40 });
+            },
+          },
+          {
+            id: "link",
+            label: "Link",
+            icon: "link",
+            run: () => {
+              setSelectedId(nodeId);
+              setLinkMode(true);
+              setLinkSource(nodeId);
+            },
+          },
+          {
+            id: "delete",
+            label: "Delete",
+            icon: "delete",
+            danger: true,
+            run: () => {
+              setSelectedId(nodeId);
+              void deleteSelection({ nodeIds: [nodeId] });
+            },
+          },
+          {
+            id: "clear",
+            label: "Clear selection",
+            icon: "clear",
+            run: () => {
+              setSelectedId(null);
+              setLinkMode(false);
+              setLinkSource(null);
+            },
+          },
+        ];
+      }
+      if (current.target === "edge" && current.edgeId) {
+        const edgeId = current.edgeId;
+        return [
+          {
+            id: "delete",
+            label: "Delete link",
+            icon: "delete",
+            danger: true,
+            run: () => {
+              void deleteSelection({ edgeIds: [edgeId] });
+            },
+          },
+          {
+            id: "add",
+            label: "Add step",
+            icon: "add",
+            run: () => {
+              const point = screenToFlowPosition({ x: current.x, y: current.y });
+              void addStep(point);
+            },
+          },
+          {
+            id: "clear",
+            label: "Clear selection",
+            icon: "clear",
+            run: () => {
+              setSelectedId(null);
+              setLinkMode(false);
+              setLinkSource(null);
+            },
+          },
+        ];
+      }
       return [
         {
           id: "add",
-          label: "Add",
+          label: "Add step",
+          icon: "add",
           run: () => {
-            const point = screenToFlowPosition({ x: wheel.x, y: wheel.y });
-            void addStep({ x: point.x + 40, y: point.y + 40 });
+            const point = screenToFlowPosition({ x: current.x, y: current.y });
+            void addStep(point);
           },
         },
         {
           id: "link",
           label: "Link",
+          icon: "link",
           run: () => {
-            setSelectedId(nodeId);
             setLinkMode(true);
-            setLinkSource(nodeId);
+            setLinkSource(null);
           },
+        },
+        {
+          id: "tidy",
+          label: "Tidy map",
+          icon: "tidy",
+          disabled: steps.length === 0 || tidying,
+          run: () => void tidy(),
+        },
+        {
+          id: "undo",
+          label: "Undo",
+          icon: "undo",
+          disabled: !canUndo,
+          run: () => void undo(),
         },
         {
           id: "delete",
           label: "Delete",
+          icon: "delete",
           danger: true,
-          run: () => {
-            setSelectedId(nodeId);
-            void deleteSelection({ nodeIds: [nodeId] });
-          },
-        },
-        {
-          id: "deselect",
-          label: "Clear",
-          run: () => {
-            setSelectedId(null);
-            setLinkMode(false);
-            setLinkSource(null);
-          },
+          disabled: !nodes.some((node) => node.selected) && !edges.some((edge) => edge.selected),
+          run: () => void deleteSelection(),
         },
       ];
-    }
-    if (wheel.target === "edge" && wheel.edgeId) {
-      const edgeId = wheel.edgeId;
-      return [
-        {
-          id: "delete",
-          label: "Delete",
-          danger: true,
-          run: () => {
-            void deleteSelection({ edgeIds: [edgeId] });
-          },
-        },
-        {
-          id: "add",
-          label: "Add",
-          run: () => {
-            const point = screenToFlowPosition({ x: wheel.x, y: wheel.y });
-            void addStep(point);
-          },
-        },
-        {
-          id: "clear",
-          label: "Clear",
-          run: () => {
-            setSelectedId(null);
-            setLinkMode(false);
-            setLinkSource(null);
-          },
-        },
-      ];
-    }
-    return [
-      {
-        id: "add",
-        label: "Add",
-        run: () => {
-          const point = screenToFlowPosition({ x: wheel.x, y: wheel.y });
-          void addStep(point);
-        },
-      },
-      {
-        id: "link",
-        label: "Link",
-        run: () => {
-          setLinkMode(true);
-          setLinkSource(null);
-        },
-      },
-      {
-        id: "tidy",
-        label: "Tidy",
-        disabled: steps.length === 0 || tidying,
-        run: () => void tidy(),
-      },
-      {
-        id: "undo",
-        label: "Undo",
-        disabled: !canUndo,
-        run: () => void undo(),
-      },
-      {
-        id: "delete",
-        label: "Delete",
-        danger: true,
-        disabled: !nodes.some((node) => node.selected) && !edges.some((edge) => edge.selected),
-        run: () => void deleteSelection(),
-      },
-    ];
+    },
+    [screenToFlowPosition, steps.length, tidying, canUndo, nodes, edges],
+  );
+
+  function openWheel(state: WheelState) {
+    clearHoldTimer();
+    const actions = buildWheelActions(state);
+    wheelRef.current = state;
+    wheelActionsRef.current = actions;
+    setHoveredWheelId(null);
+    setWheel(state);
   }
+
+  const wheelActions = wheel ? buildWheelActions(wheel) : [];
+  if (wheel) {
+    wheelActionsRef.current = wheelActions;
+    wheelRef.current = wheel;
+  }
+
+  useEffect(() => {
+    function onMove(event: PointerEvent) {
+      const current = wheelRef.current;
+      if (!current) return;
+      setHoveredWheelId(wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current));
+    }
+
+    function finishRightClick(event: PointerEvent) {
+      if (event.button !== 2 && event.type !== "pointercancel") return;
+      clearHoldTimer();
+      const current = wheelRef.current;
+      if (!current) return;
+      const actionId = wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current);
+      const action = wheelActionsRef.current.find((item) => item.id === actionId);
+      if (action && !action.disabled) action.run();
+      closeWheel();
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finishRightClick);
+    window.addEventListener("pointercancel", finishRightClick);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finishRightClick);
+      window.removeEventListener("pointercancel", finishRightClick);
+    };
+  }, []);
 
   function onCanvasPointerDown(event: ReactPointerEvent) {
     if (event.button !== 2) return;
+    event.preventDefault();
     const x = event.clientX;
     const y = event.clientY;
     const target = event.target as HTMLElement;
@@ -942,8 +1006,6 @@ function Canvas({ projectId }: { projectId: string }) {
           <div
             className="relative min-h-[60vh] flex-1 lg:min-h-0"
             onPointerDown={onCanvasPointerDown}
-            onPointerUp={clearHoldTimer}
-            onPointerLeave={clearHoldTimer}
             onContextMenu={(event) => event.preventDefault()}
           >
             {ready ? (
@@ -966,21 +1028,11 @@ function Canvas({ projectId }: { projectId: string }) {
                   setSelectedId(null);
                   setLinkMode(false);
                   setLinkSource(null);
-                  setWheel(null);
+                  closeWheel();
                 }}
-                onPaneContextMenu={(event) => {
-                  event.preventDefault();
-                  openWheel({ x: event.clientX, y: event.clientY, target: "pane" });
-                }}
-                onNodeContextMenu={(event, node) => {
-                  event.preventDefault();
-                  setSelectedId(node.id);
-                  openWheel({ x: event.clientX, y: event.clientY, target: "node", nodeId: node.id });
-                }}
-                onEdgeContextMenu={(event, edge) => {
-                  event.preventDefault();
-                  openWheel({ x: event.clientX, y: event.clientY, target: "edge", edgeId: edge.id });
-                }}
+                onPaneContextMenu={(event) => event.preventDefault()}
+                onNodeContextMenu={(event) => event.preventDefault()}
+                onEdgeContextMenu={(event) => event.preventDefault()}
                 onNodeDragStop={(_, node) => {
                   const previous = stepsRef.current.find((step) => step.id === node.id);
                   setSteps((current) =>
@@ -1011,7 +1063,15 @@ function Canvas({ projectId }: { projectId: string }) {
             ) : (
               <p className="p-6 text-base-content/60">Loading the canvas…</p>
             )}
-            {wheel ? <CanvasWheel x={wheel.x} y={wheel.y} actions={wheelActions()} onClose={() => setWheel(null)} /> : null}
+            {wheel ? (
+              <CanvasWheel
+                x={wheel.x}
+                y={wheel.y}
+                actions={wheelActions}
+                hoveredId={hoveredWheelId}
+                onClose={closeWheel}
+              />
+            ) : null}
             {ready && steps.length === 0 ? (
               <div className="absolute inset-0 flex items-center justify-center p-6">
                 <div className="max-w-md rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
@@ -1111,7 +1171,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 <li>⌘Z / Ctrl+Z — undo</li>
                 <li>⇧⌘Z — redo</li>
                 <li>Delete / Backspace — remove selected step or link</li>
-                <li>Hold right-click — action wheel (add, link, delete…)</li>
+                <li>Hold right-click — action wheel; release over an icon to choose</li>
                 <li>Esc — close the open step</li>
                 <li>? — this list</li>
               </ul>

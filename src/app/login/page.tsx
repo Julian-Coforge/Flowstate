@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { applyTheme, readTheme } from "@/lib/theme";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"sign-in" | "create">("sign-in");
@@ -10,6 +11,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    applyTheme(readTheme());
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

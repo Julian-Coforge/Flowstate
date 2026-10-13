@@ -10,7 +10,9 @@ export function readTheme(): Theme {
 }
 
 export function applyTheme(theme: Theme) {
-  document.documentElement.setAttribute("data-theme", theme);
+  const root = document.documentElement;
+  root.setAttribute("data-theme", theme);
+  root.style.colorScheme = theme;
   window.localStorage.setItem(THEME_KEY, theme);
   window.dispatchEvent(new CustomEvent("flowstate-theme", { detail: theme }));
 }

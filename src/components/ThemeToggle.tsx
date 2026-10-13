@@ -7,9 +7,7 @@ export default function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    const next = readTheme();
-    applyTheme(next);
-    setTheme(next);
+    setTheme(readTheme());
   }, []);
 
   function toggle() {
