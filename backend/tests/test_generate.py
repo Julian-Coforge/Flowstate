@@ -126,3 +126,64 @@ def test_generate_plan_surfaces_connection_error():
             generate_plan(settings, "Plant a garden", "quick")
     assert exc.value.status == 502
     assert "connect" in exc.value.message.lower()
+
+
+def _plan_with(count):
+    return {
+        "nodes": [
+            {"key": f"n{i}", "title": f"Step {i}", "description": "", "importance": "medium", "checklist": [], "dueDate": f"2026-11-0{min(i, 6)}"}
+            for i in range(1, count + 1)
+        ],
+        "edges": [],
+        "todos": [],
+    }
+
+
+def test_refine_allows_growth_past_quick_cap():
+    from app.generate import refine_plan
+
+    settings = Settings(openai_api_key="sk-test")
+    with patch("app.generate.call_openai_refine", return_value=json.dumps(_plan_with(11))):
+        result = refine_plan(settings, _plan_with(8), "more_detail", "quick")
+    assert len(result["nodes"]) == 11
+
+
+def test_refine_prompt_carries_deadline_from_plan():
+    from datetime import date
+
+    from app.generate import build_refine_prompt, derive_refine_anchors
+
+    plan = _plan_with(5)
+    plan["nodes"][-1]["dueDate"] = "2026-11-06"
+    anchors = derive_refine_anchors(plan, today=date(2026, 10, 12))
+    assert anchors["deadline"] == "2026-11-06"
+    prompt = build_refine_prompt(plan, "more_detail", "quick", today=date(2026, 10, 12), anchors=anchors)
+    assert "2026-11-06" in prompt
+    assert "BEGIN PLAN" in prompt
+
+
+def test_generate_retry_feeds_validation_error_back():
+    settings = Settings(openai_api_key="sk-test")
+    calls = []
+
+    def fake(*args, **kwargs):
+        calls.append(kwargs.get("retry"))
+        return '{"nodes":[]}' if len(calls) == 1 else json.dumps(GOOD_PLAN)
+
+    with patch("app.generate.call_openai", side_effect=fake):
+        generate_plan(settings, "Plant a garden", "quick")
+    assert calls[0] is None
+    assert calls[1][0] == '{"nodes":[]}'
+    assert calls[1][1]
+
+
+def test_prompt_delimits_idea_and_git_rules_are_conditional():
+    from datetime import date
+
+    from app.generate import build_prompt
+
+    plain = build_prompt("Plan our anniversary", "quick", today=date(2026, 10, 12), document_text="Book a venue and a cake.")
+    assert "BEGIN IDEA" in plain
+    assert "git" not in plain.lower().split("document rules")[1].split("begin idea")[0].replace("digit", "")
+    code = build_prompt("Plan", "quick", today=date(2026, 10, 12), document_text="Push to a GitHub repo with feature branches.")
+    assert "Software rules" in code

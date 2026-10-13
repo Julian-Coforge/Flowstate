@@ -232,8 +232,14 @@ def plan_node_bounds(mode: GenerateMode, *, has_document: bool = False) -> tuple
     return (1, 8) if mode == "quick" else (5, 20)
 
 
-def validate_plan(plan: Plan, mode: GenerateMode, *, has_document: bool = False) -> Plan:
-    low, high = plan_node_bounds(mode, has_document=has_document)
+def validate_plan(
+    plan: Plan,
+    mode: GenerateMode,
+    *,
+    has_document: bool = False,
+    bounds: tuple[int, int] | None = None,
+) -> Plan:
+    low, high = bounds or plan_node_bounds(mode, has_document=has_document)
     count = len(plan.nodes)
     if count < low or count > high:
         raise ValueError(f"A {mode} plan needs {low}–{high} steps")
