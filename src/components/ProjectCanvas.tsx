@@ -12,7 +12,8 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  getBezierPath,
+  SmoothStepEdge,
+  getSmoothStepPath,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -20,6 +21,7 @@ import {
   useUpdateNodeInternals,
   type Connection,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
@@ -204,6 +206,7 @@ function StepCard({ data, id }: NodeProps<StepNode>) {
 }
 
 const nodeTypes = { step: StepCard };
+const edgeTypes = { flow: FlowLink };
 
 function toFlowNode(step: FlowNode, linkingId: string | null, selectedId: string | null): StepNode {
   const expanded = step.id === selectedId;
@@ -224,6 +227,13 @@ function toFlowNode(step: FlowNode, linkingId: string | null, selectedId: string
   };
 }
 
+const EDGE_CORNER = 18;
+const EDGE_OFFSET = 16;
+
+function FlowLink(props: EdgeProps) {
+  return <SmoothStepEdge {...props} pathOptions={{ borderRadius: EDGE_CORNER, offset: EDGE_OFFSET }} />;
+}
+
 function toFlowEdge(edge: FlowEdge): Edge {
   return {
     id: edge.id,
@@ -231,7 +241,7 @@ function toFlowEdge(edge: FlowEdge): Edge {
     target: edge.targetNodeId,
     sourceHandle: edge.sourceHandle ?? undefined,
     targetHandle: edge.targetHandle ?? undefined,
-    type: "default",
+    type: "flow",
     style: { strokeWidth: 2 },
   };
 }
@@ -1287,9 +1297,10 @@ function Canvas({ projectId }: { projectId: string }) {
                 onConnect={onConnect}
                 nodeTypes={nodeTypes}
                 connectionMode={ConnectionMode.Loose}
-                connectionLineType={ConnectionLineType.Bezier}
+                connectionLineType={ConnectionLineType.SmoothStep}
                 nodesConnectable
-                defaultEdgeOptions={{ type: "default", style: { strokeWidth: 2 } }}
+                edgeTypes={edgeTypes}
+                defaultEdgeOptions={{ type: "flow", style: { strokeWidth: 2 } }}
                 onNodeClick={(event, node) => {
                   if (event.button !== 0) return;
                   const target = event.target as HTMLElement;
@@ -1339,13 +1350,15 @@ function Canvas({ projectId }: { projectId: string }) {
               <svg className="pointer-events-none fixed inset-0 z-[4]" aria-hidden>
                 <path
                   d={
-                    getBezierPath({
+                    getSmoothStepPath({
                       sourceX: rightDragLink.fromX,
                       sourceY: rightDragLink.fromY,
                       sourcePosition: rightDragLink.sourcePosition,
                       targetX: rightDragLink.toX,
                       targetY: rightDragLink.toY,
                       targetPosition: rightDragLink.targetPosition,
+                      borderRadius: EDGE_CORNER,
+                      offset: EDGE_OFFSET,
                     })[0]
                   }
                   fill="none"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 export type WheelAction = {
   id: string;
@@ -104,8 +105,12 @@ export default function CanvasWheel({ x, y, actions, hoveredId, onClose }: Props
 
   const usable = actions.length || 1;
 
-  return (
-    <div className="pointer-events-none fixed inset-0 z-40" role="menu" aria-label="Canvas actions">
+  if (typeof document === "undefined") return null;
+
+  // Portal to body so `fixed` + clientX/Y stay viewport-aligned. View Transition /
+  // transform ancestors otherwise become the containing block and shift the wheel.
+  return createPortal(
+    <div className="pointer-events-none fixed inset-0 z-[100]" role="menu" aria-label="Canvas actions">
       <div
         className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow"
         style={{ left: x, top: y }}
@@ -142,6 +147,7 @@ export default function CanvasWheel({ x, y, actions, hoveredId, onClose }: Props
           </div>
         );
       })}
-    </div>
+    </div>,
+    document.body,
   );
 }
