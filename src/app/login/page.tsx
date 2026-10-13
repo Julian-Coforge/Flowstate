@@ -66,13 +66,13 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-12">
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(ellipse_at_top,color-mix(in_oklab,var(--color-primary)_12%,transparent),transparent_55%),var(--color-base-200)] px-4 py-12">
       <div className="w-full max-w-md">
-        <p className="text-sm font-medium uppercase tracking-[0.14em] text-primary">Flowstate</p>
+        <p className="display text-sm font-semibold uppercase tracking-[0.14em] text-primary">Flowstate</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight">Your day, your projects, one place.</h1>
         <p className="mt-3 text-base-content/70">A planner for what is due, and a canvas for how the work fits together.</p>
 
-        <form onSubmit={(event) => void submit(event)} className="mt-8 rounded-lg border border-base-300 bg-base-100 p-5">
+        <form onSubmit={(event) => void submit(event)} className="mt-8 rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
           <div className="mb-4 flex gap-2">
             <button type="button" className={`btn btn-sm ${mode === "sign-in" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("sign-in")}>
               Sign in

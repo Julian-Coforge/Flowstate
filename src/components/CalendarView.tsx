@@ -229,7 +229,7 @@ export default function CalendarView() {
 
       <section className="mt-6 rounded-lg border border-base-300 bg-base-100 p-4">
         <h2 className="text-lg font-semibold">{selected}</h2>
-        <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
           <input
             className="input w-full"
             placeholder="Add a task for this day"
@@ -248,7 +248,7 @@ export default function CalendarView() {
           <button className="btn btn-primary" type="submit">
             Add
           </button>
-          <div className="sm:col-span-3">
+          <div className="mt-1 mb-0.5 sm:col-span-3">
             <ColorPicker value={color} onChange={setColor} />
           </div>
         </form>

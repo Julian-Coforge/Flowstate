@@ -11,7 +11,7 @@ export default function ColorPicker({
   onChange: (color: TaskColor) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Task colour">
+    <div className="flex flex-wrap items-center gap-2 py-1" role="radiogroup" aria-label="Task colour">
       {(Object.keys(TASK_COLORS) as TaskColor[]).map((color) => {
         const meta = TASK_COLORS[color];
         const selected = value === color;
@@ -24,7 +24,11 @@ export default function ColorPicker({
             title={meta.label}
             aria-label={meta.label}
             onClick={() => onChange(color)}
-            className={`h-5 w-5 rounded-full border ${meta.swatch} ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-base-100" : "border-base-300"}`}
+            className={`color-swatch h-6 w-6 rounded-full border-2 ${meta.swatch} ${
+              selected
+                ? "border-primary shadow-sm ring-2 ring-primary/30 ring-offset-2 ring-offset-base-100"
+                : "border-base-100 shadow-sm hover:border-base-content/20"
+            }`}
           />
         );
       })}

@@ -28,7 +28,10 @@ export default function AppHeader() {
   function item(href: string, label: string) {
     const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
     return (
-      <Link href={href} className={`btn btn-ghost btn-sm ${active ? "text-primary" : ""}`}>
+      <Link
+        href={href}
+        className={`nav-link btn btn-ghost btn-sm ${active ? "bg-primary/10 font-medium text-primary" : ""}`}
+      >
         {label}
       </Link>
     );
@@ -36,9 +39,9 @@ export default function AppHeader() {
 
   return (
     <>
-      <header className="navbar min-h-16 w-full border-b border-base-300 bg-base-100 px-3 sm:px-5">
+      <header className="navbar min-h-16 w-full border-b border-base-300 bg-base-100/95 px-3 shadow-sm backdrop-blur sm:px-5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-          <Link href="/" className="display mr-2 text-xl font-semibold tracking-tight">
+          <Link href="/" className="display mr-2 text-xl font-semibold tracking-tight transition hover:text-primary">
             Flowstate
           </Link>
           {item("/", "Today")}

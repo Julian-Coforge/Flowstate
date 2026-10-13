@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
+import DocumentUpload from "@/components/DocumentUpload";
 import { RECURRENCE_LABEL } from "@/lib/labels";
 import { addDays, formatLong, isOnTodayList, isUpcoming, todayISO } from "@/lib/tasks";
 import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
@@ -231,7 +232,7 @@ export default function Dashboard() {
         <p className="text-sm font-medium uppercase tracking-[0.14em] text-primary">Today</p>
         <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">{today ? formatLong(today) : "Today"}</h1>
 
-        <form onSubmit={(event) => void createProject(event)} className="mt-6 grid gap-2">
+        <form onSubmit={(event) => void createProject(event)} className="mt-6 grid gap-3">
           <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
             <input
               className="input w-full min-w-0"
@@ -253,11 +254,11 @@ export default function Dashboard() {
             </button>
           </div>
           {aiOn ? (
-            <div className="rounded-lg border border-base-300 bg-base-100 p-3">
-              <label className="block text-sm">
+            <div className="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+              <label className="block text-sm font-medium">
                 Generate a plan (optional)
                 <textarea
-                  className="textarea mt-1 w-full"
+                  className="textarea mt-1.5 w-full"
                   rows={2}
                   maxLength={500}
                   placeholder="e.g. Holiday starting next Monday, or weekly shopping from 12 November"
@@ -266,18 +267,8 @@ export default function Dashboard() {
                   aria-label="Generate a plan from this idea"
                 />
               </label>
-              <label className="mt-2 block text-sm">
-                Attach a document (optional)
-                <input
-                  className="file-input file-input-bordered file-input-sm mt-1 w-full"
-                  type="file"
-                  accept=".txt,.md,.markdown,.csv,.pdf,.docx,text/plain,application/pdf"
-                  onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
-                  aria-label="Upload a document for the plan"
-                />
-              </label>
-              {documentFile ? <p className="mt-1 text-xs text-base-content/60">{documentFile.name}</p> : null}
-              <div className="mt-2 flex gap-2">
+              <DocumentUpload file={documentFile} onChange={setDocumentFile} />
+              <div className="mt-3 flex gap-2">
                 <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("quick")}>
                   Quick
                 </button>
@@ -335,7 +326,7 @@ export default function Dashboard() {
             </p>
           ) : null}
           {projects.map((project) => (
-            <article key={project.id} className="relative rounded-lg border border-base-300 bg-base-100 transition hover:border-primary">
+            <article key={project.id} className="surface-card relative rounded-lg border border-base-300 bg-base-100">
               <Link href={`/projects/${project.id}`} className="block p-4 pr-28">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-semibold">{project.title}</h2>
@@ -345,7 +336,7 @@ export default function Dashboard() {
                 </div>
                 {project.description ? <p className="mt-1 line-clamp-2 text-sm text-base-content/70">{project.description}</p> : null}
                 <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-base-200">
-                  <div className="h-full bg-primary" style={{ width: `${project.progress.percent}%` }} />
+                  <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${project.progress.percent}%` }} />
                 </div>
                 <p className="mt-2 text-sm text-base-content/70">
                   {project.progress.percent}% · {project.progress.done} / {project.progress.total} steps
@@ -383,9 +374,9 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <aside className="rounded-lg border border-base-300 bg-base-100 p-4">
+      <aside className="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Today</h2>
-        <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2">
+        <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2.5">
           <input
             className="input w-full"
             placeholder="Add a task"
@@ -412,7 +403,9 @@ export default function Dashboard() {
               </option>
             ))}
           </select>
-          <ColorPicker value={taskColor} onChange={setTaskColor} />
+          <div className="mt-2 mb-1">
+            <ColorPicker value={taskColor} onChange={setTaskColor} />
+          </div>
           <button className="btn btn-primary btn-sm" type="submit">
             Add task
           </button>

@@ -24,6 +24,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import CanvasWheel, { wheelActionAtPoint, type WheelAction } from "@/components/CanvasWheel";
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
+import DocumentUpload from "@/components/DocumentUpload";
 import { api } from "@/lib/api";
 import { inferHandles } from "@/lib/layout";
 import { IMPORTANCE_LABEL, RECURRENCE_LABEL, STATUS_LABEL } from "@/lib/labels";
@@ -207,9 +208,12 @@ function Canvas({ projectId }: { projectId: string }) {
   const [generating, setGenerating] = useState(false);
   const [wheel, setWheel] = useState<WheelState | null>(null);
   const [hoveredWheelId, setHoveredWheelId] = useState<string | null>(null);
+  const [wheelFocusId, setWheelFocusId] = useState<string | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const wheelRef = useRef<WheelState | null>(null);
   const wheelActionsRef = useRef<WheelAction[]>([]);
+  const wheelFocusIdRef = useRef<string | null>(null);
+  const buildWheelActionsRef = useRef<(current: WheelState) => WheelAction[]>(() => []);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const stepsRef = useRef(steps);
@@ -281,14 +285,14 @@ function Canvas({ projectId }: { projectId: string }) {
             title: step.title,
             status: step.status,
             importance: step.importance,
-            linking: node.id === linkSource,
+            linking: node.id === linkSource || node.id === wheelFocusId,
             expanded,
             step,
           },
         };
       }),
     );
-  }, [steps, selectedId, linkSource, setNodes]);
+  }, [steps, selectedId, linkSource, wheelFocusId, setNodes]);
 
   useEffect(() => {
     if (!ready || !selectedId) return;
@@ -360,14 +364,31 @@ function Canvas({ projectId }: { projectId: string }) {
     clearHoldTimer();
     wheelRef.current = null;
     wheelActionsRef.current = [];
+    wheelFocusIdRef.current = null;
     setHoveredWheelId(null);
+    setWheelFocusId(null);
     setWheel(null);
+  }
+
+  function setWheelFocus(nodeId: string | null) {
+    wheelFocusIdRef.current = nodeId;
+    setWheelFocusId(nodeId);
+  }
+
+  function nodeIdAtPoint(clientX: number, clientY: number): string | null {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    for (const el of stack) {
+      const nodeEl = (el as Element).closest?.(".react-flow__node") as HTMLElement | null;
+      if (nodeEl?.dataset.id) return nodeEl.dataset.id;
+    }
+    return null;
   }
 
   const buildWheelActions = useCallback(
     (current: WheelState): WheelAction[] => {
+      const focusedNodeId = () => wheelFocusIdRef.current ?? current.nodeId ?? null;
+
       if (current.target === "node" && current.nodeId) {
-        const nodeId = current.nodeId;
         return [
           {
             id: "add",
@@ -383,7 +404,7 @@ function Canvas({ projectId }: { projectId: string }) {
             label: "Link",
             icon: "link",
             run: () => {
-              setSelectedId(nodeId);
+              const nodeId = focusedNodeId();
               setLinkMode(true);
               setLinkSource(nodeId);
             },
@@ -394,8 +415,8 @@ function Canvas({ projectId }: { projectId: string }) {
             icon: "delete",
             danger: true,
             run: () => {
-              setSelectedId(nodeId);
-              void deleteSelection({ nodeIds: [nodeId] });
+              const nodeId = focusedNodeId();
+              if (nodeId) void deleteSelection({ nodeIds: [nodeId] });
             },
           },
           {
@@ -458,8 +479,9 @@ function Canvas({ projectId }: { projectId: string }) {
           label: "Link",
           icon: "link",
           run: () => {
+            const nodeId = focusedNodeId();
             setLinkMode(true);
-            setLinkSource(null);
+            setLinkSource(nodeId);
           },
         },
         {
@@ -481,21 +503,44 @@ function Canvas({ projectId }: { projectId: string }) {
           label: "Delete",
           icon: "delete",
           danger: true,
-          disabled: !nodes.some((node) => node.selected) && !edges.some((edge) => edge.selected),
-          run: () => void deleteSelection(),
+          disabled:
+            !focusedNodeId() &&
+            !nodes.some((node) => node.selected) &&
+            !edges.some((edge) => edge.selected),
+          run: () => {
+            const nodeId = focusedNodeId();
+            if (nodeId) void deleteSelection({ nodeIds: [nodeId] });
+            else void deleteSelection();
+          },
         },
       ];
     },
     [screenToFlowPosition, steps.length, tidying, canUndo, nodes, edges],
   );
 
+  buildWheelActionsRef.current = buildWheelActions;
+
   function openWheel(state: WheelState) {
     clearHoldTimer();
+    const focusId = state.target === "node" ? state.nodeId ?? null : null;
+    setWheelFocus(focusId);
     const actions = buildWheelActions(state);
     wheelRef.current = state;
     wheelActionsRef.current = actions;
     setHoveredWheelId(null);
     setWheel(state);
+  }
+
+  function retargetWheelToNode(nodeId: string) {
+    const current = wheelRef.current;
+    if (!current || current.target === "edge") return;
+    setWheelFocus(nodeId);
+    if (current.target === "node" && current.nodeId === nodeId) return;
+    const next: WheelState = { x: current.x, y: current.y, target: "node", nodeId };
+    const actions = buildWheelActionsRef.current(next);
+    wheelRef.current = next;
+    wheelActionsRef.current = actions;
+    setWheel(next);
   }
 
   const wheelActions = wheel ? buildWheelActions(wheel) : [];
@@ -508,7 +553,13 @@ function Canvas({ projectId }: { projectId: string }) {
     function onMove(event: PointerEvent) {
       const current = wheelRef.current;
       if (!current) return;
-      setHoveredWheelId(wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current));
+      const actionId = wheelActionAtPoint(current.x, current.y, event.clientX, event.clientY, wheelActionsRef.current);
+      setHoveredWheelId(actionId);
+      // While aiming at a wheel icon, keep the focused node; otherwise pick up the box under the cursor.
+      if (!actionId && current.target !== "edge") {
+        const nodeId = nodeIdAtPoint(event.clientX, event.clientY);
+        if (nodeId) retargetWheelToNode(nodeId);
+      }
     }
 
     function finishRightClick(event: PointerEvent) {
@@ -543,7 +594,6 @@ function Canvas({ projectId }: { projectId: string }) {
     clearHoldTimer();
     holdTimerRef.current = window.setTimeout(() => {
       if (nodeEl?.dataset.id) {
-        setSelectedId(nodeEl.dataset.id);
         openWheel({ x, y, target: "node", nodeId: nodeEl.dataset.id });
       } else if (edgeEl?.dataset.id) {
         openWheel({ x, y, target: "edge", edgeId: edgeEl.dataset.id });
@@ -590,6 +640,11 @@ function Canvas({ projectId }: { projectId: string }) {
     [createLink],
   );
 
+  function clearFlowSelection() {
+    setNodes((current) => current.map((node) => (node.selected ? { ...node, selected: false } : node)));
+    setEdges((current) => current.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)));
+  }
+
   function onNodeClick(id: string) {
     if (!linkMode) {
       setSelectedId(id);
@@ -606,21 +661,34 @@ function Canvas({ projectId }: { projectId: string }) {
     void createLink(linkSource, id);
     setLinkSource(null);
     setLinkMode(false);
+    // Linking clicks select the target in React Flow — clear so a follow-up edge delete
+    // doesn't also remove that node.
+    clearFlowSelection();
   }
 
   async function deleteSelection(forced?: { nodeIds?: string[]; edgeIds?: string[] }) {
-    const selectedNodes =
-      forced?.nodeIds ?? nodesRef.current.filter((node) => node.selected).map((node) => node.id);
-    const selectedEdges = forced?.edgeIds
-      ? edgesRef.current.filter((edge) => forced.edgeIds!.includes(edge.id))
+    // When callers force specific ids, only delete those — never mix in the current RF selection.
+    const selectedNodes = forced
+      ? (forced.nodeIds ?? [])
+      : nodesRef.current.filter((node) => node.selected).map((node) => node.id);
+    const selectedEdges = forced
+      ? forced.edgeIds
+        ? edgesRef.current.filter((edge) => forced.edgeIds!.includes(edge.id))
+        : []
       : edgesRef.current.filter((edge) => edge.selected);
     const removedNodes = new Set(selectedNodes);
     const edgesToDelete = selectedEdges.filter((edge) => !removedNodes.has(edge.source) && !removedNodes.has(edge.target));
     if (selectedNodes.length === 0 && edgesToDelete.length === 0) return;
     const removedNodeSet = new Set(selectedNodes);
     const snapshotNodes = stepsRef.current.filter((step) => removedNodeSet.has(step.id));
+    const edgeIdsToSnapshot = new Set([
+      ...edgesToDelete.map((edge) => edge.id),
+      ...edgesRef.current
+        .filter((edge) => removedNodeSet.has(edge.source) || removedNodeSet.has(edge.target))
+        .map((edge) => edge.id),
+    ]);
     const snapshotEdges = (edgesRef.current
-      .filter((edge) => edge.selected || removedNodeSet.has(edge.source) || removedNodeSet.has(edge.target))
+      .filter((edge) => edgeIdsToSnapshot.has(edge.id))
       .map((edge) => ({
         id: edge.id,
         projectId,
@@ -1020,6 +1088,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 connectionLineType={ConnectionLineType.Bezier}
                 defaultEdgeOptions={{ type: "default", style: { strokeWidth: 2 } }}
                 onNodeClick={(event, node) => {
+                  if (event.button !== 0) return;
                   const target = event.target as HTMLElement;
                   if (target.closest("[data-close-step], [data-step-editor]")) return;
                   onNodeClick(node.id);
@@ -1077,7 +1146,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 <div className="max-w-md rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
                   <p className="text-base-content/70">Add a step to start the map, or generate a plan from an idea.</p>
                   {aiOn ? (
-                    <form onSubmit={(event) => void generatePlan(event)} className="mt-3 grid gap-2">
+                    <form onSubmit={(event) => void generatePlan(event)} className="mt-3 grid gap-2.5">
                       <textarea
                         className="textarea w-full"
                         rows={3}
@@ -1086,19 +1155,12 @@ function Canvas({ projectId }: { projectId: string }) {
                         value={idea}
                         onChange={(event) => setIdea(event.target.value)}
                       />
-                      <input
-                        className="file-input file-input-bordered file-input-sm w-full"
-                        type="file"
-                        accept=".txt,.md,.markdown,.csv,.pdf,.docx,text/plain,application/pdf"
-                        onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
-                        aria-label="Upload a document for the plan"
-                      />
-                      {documentFile ? <p className="text-xs text-base-content/60">{documentFile.name}</p> : null}
+                      <DocumentUpload file={documentFile} onChange={setDocumentFile} />
                       <div className="flex gap-2">
-                        <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : ""}`} onClick={() => setMode("quick")}>
+                        <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("quick")}>
                           Quick
                         </button>
-                        <button type="button" className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : ""}`} onClick={() => setMode("thinking")}>
+                        <button type="button" className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`} onClick={() => setMode("thinking")}>
                           Thinking
                         </button>
                         <button className="btn btn-primary btn-sm ml-auto" type="submit" disabled={generating}>
@@ -1114,7 +1176,7 @@ function Canvas({ projectId }: { projectId: string }) {
           <aside className="w-full max-lg:max-h-[36vh] overflow-y-auto border-t border-base-300 bg-base-100 p-4 lg:w-80 lg:border-t-0 lg:border-l">
             <h2 className="text-lg font-semibold">Project tasks</h2>
             {project?.description ? <p className="mt-1 text-sm text-base-content/70">{project.description}</p> : null}
-            <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2">
+            <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2.5">
               <input
                 className="input w-full"
                 placeholder="Add a task"
@@ -1133,7 +1195,9 @@ function Canvas({ projectId }: { projectId: string }) {
                   ))}
                 </select>
               </div>
-              <ColorPicker value={taskColor} onChange={setTaskColor} />
+              <div className="mt-2 mb-1">
+                <ColorPicker value={taskColor} onChange={setTaskColor} />
+              </div>
               <button className="btn btn-primary btn-sm" type="submit">
                 Add
               </button>
@@ -1171,7 +1235,8 @@ function Canvas({ projectId }: { projectId: string }) {
                 <li>⌘Z / Ctrl+Z — undo</li>
                 <li>⇧⌘Z — redo</li>
                 <li>Delete / Backspace — remove selected step or link</li>
-                <li>Hold right-click — action wheel; release over an icon to choose</li>
+                <li>Hold right-click — action wheel; hover a step to target it for link/delete</li>
+                <li>Release over Link, then click the other step to connect</li>
                 <li>Esc — close the open step</li>
                 <li>? — this list</li>
               </ul>

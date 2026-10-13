@@ -77,34 +77,93 @@ def ensure_demo_user() -> str:
         return created.json()["id"]
 
 
+def clear_all_app_data(db) -> int:
+    """Remove projects/todos for every account. Auth users are left untouched."""
+    projects = list(db.scalars(select(Project)))
+    for project in projects:
+        db.delete(project)
+    deleted_todos = db.execute(delete(Todo))
+    db.flush()
+    return len(projects) + (deleted_todos.rowcount or 0)
+
+
 def seed() -> None:
     user_id = uuid.UUID(ensure_demo_user())
     SessionLocal = get_session_factory()
     db = SessionLocal()
     try:
-        for project in db.scalars(select(Project).where(Project.user_id == user_id)):
-            db.delete(project)
-        db.execute(delete(Todo).where(Todo.user_id == user_id))
-        db.flush()
+        cleared = clear_all_app_data(db)
+        print(f"Cleared app data across all accounts ({cleared} project/todo rows)")
 
         now = int(time.time() * 1000)
-        portal, portfolio, move, spanish, health, lisbon, birthday = (uuid.uuid4() for _ in range(7))
+        # Newest first in the UI: simple examples at the top, complex at the bottom.
+        shop, birthday, spanish, lisbon, health, move, portfolio, portal = (uuid.uuid4() for _ in range(8))
         db.add_all(
             [
                 Project(
-                    id=portal,
+                    id=shop,
                     user_id=user_id,
-                    title="Northshore client portal",
-                    description="Replace their paper process with a portal the ops team can actually use.",
+                    title="1 · Weekend shop",
+                    description="A tiny linear plan — three steps, nothing fancy.",
                     status="active",
                     created_at=now,
                 ),
-                Project(id=portfolio, user_id=user_id, title="Portfolio site", description="A small site to show recent work.", status="active", created_at=now - 1000),
-                Project(id=move, user_id=user_id, title="Moving house", description="Leave the flat and settle into the new place.", status="active", created_at=now - 2000),
-                Project(id=spanish, user_id=user_id, title="Learn Spanish", description="A simple weekly rhythm to get past beginner.", status="active", created_at=now - 3000),
-                Project(id=health, user_id=user_id, title="Health week", description="Sleep, walks, and cooking that does not take over the evening.", status="active", created_at=now - 4000),
-                Project(id=lisbon, user_id=user_id, title="Weekend in Lisbon", description="Flights, a stay, and a loose plan for two days.", status="active", created_at=now - 5000),
-                Project(id=birthday, user_id=user_id, title="Mum's birthday", description="Gift, cake, and a table for four.", status="active", created_at=now - 6000),
+                Project(
+                    id=birthday,
+                    user_id=user_id,
+                    title="2 · Mum's birthday",
+                    description="Gift, cake, and a table for four — a small funnel.",
+                    status="active",
+                    created_at=now - 1000,
+                ),
+                Project(
+                    id=spanish,
+                    user_id=user_id,
+                    title="3 · Learn Spanish",
+                    description="A simple weekly rhythm to get past beginner.",
+                    status="active",
+                    created_at=now - 2000,
+                ),
+                Project(
+                    id=lisbon,
+                    user_id=user_id,
+                    title="4 · Weekend in Lisbon",
+                    description="Flights, a stay, and a loose plan for two days.",
+                    status="active",
+                    created_at=now - 3000,
+                ),
+                Project(
+                    id=health,
+                    user_id=user_id,
+                    title="5 · Health week",
+                    description="Two parallel tracks: food and recovery.",
+                    status="active",
+                    created_at=now - 4000,
+                ),
+                Project(
+                    id=move,
+                    user_id=user_id,
+                    title="6 · Moving house",
+                    description="Leave the flat and settle into the new place.",
+                    status="active",
+                    created_at=now - 5000,
+                ),
+                Project(
+                    id=portfolio,
+                    user_id=user_id,
+                    title="7 · Portfolio site",
+                    description="Branches that rejoin — design and photos both feed the build.",
+                    status="active",
+                    created_at=now - 6000,
+                ),
+                Project(
+                    id=portal,
+                    user_id=user_id,
+                    title="8 · Northshore client portal",
+                    description="A full work map: research, build tracks, and a launch path.",
+                    status="active",
+                    created_at=now - 7000,
+                ),
             ]
         )
 
@@ -133,12 +192,17 @@ def seed() -> None:
         research, design, photos, build, publish = _ids(5)
         landlord, pack, utilities, van, unpack = _ids(5)
         vocab, listen, grammar, speak = _ids(4)
-        shop, cook, walk, sleep = _ids(4)
+        food_shop, cook, walk, sleep = _ids(4)
         flights, stay, days, pack_bag = _ids(4)
         invite, gift, cake, book_table = _ids(4)
+        list_items, buy_food, put_away = _ids(3)
         db.flush()
 
         node_rows = [
+            # 1 · Weekend shop — simplest linear chain.
+            Node(id=list_items, project_id=shop, title="Write the list", description="Milk, bread, fruit, washing-up liquid.", importance="medium", notes="", status="done", x=80, y=160, due_date=_add(-1)),
+            Node(id=buy_food, project_id=shop, title="Go to the shop", description="One trip, no wandering the aisles.", importance="high", notes="", status="doing", x=400, y=160, due_date=_today()),
+            Node(id=put_away, project_id=shop, title="Put it away", description="Fridge first, then the cupboard.", importance="low", notes="", status="todo", x=720, y=160, due_date=_add(1)),
             # Large work map: four columns, mostly top-to-bottom. 12 of 20 done = 60%.
             Node(id=kickoff, project_id=portal, title="Kickoff with ops", description="Who uses this, and what is painful today.", importance="high", notes="Paper folders, email chains, no audit trail.", status="done", x=80, y=40, due_date=_add(-40)),
             Node(id=brief, project_id=portal, title="Write the brief", description="Scope, out of scope, and a first release.", importance="high", notes="", status="done", x=80, y=200, due_date=_add(-35)),
@@ -178,7 +242,7 @@ def seed() -> None:
             Node(id=grammar, project_id=spanish, title="Present tense", description="Regular verbs until they feel easy.", importance="high", notes="", status="todo", x=220, y=380, due_date=_add(4)),
             Node(id=speak, project_id=spanish, title="Speak with someone", description="A 20 minute conversation.", importance="high", notes="", status="todo", x=220, y=550, due_date=_add(6)),
             # Health: two vertical tracks.
-            Node(id=shop, project_id=health, title="Food shop", description="A list that lasts the week.", importance="medium", notes="", status="todo", x=80, y=40, due_date=_add(4)),
+            Node(id=food_shop, project_id=health, title="Food shop", description="A list that lasts the week.", importance="medium", notes="", status="todo", x=80, y=40, due_date=_add(4)),
             Node(id=cook, project_id=health, title="Cook twice", description="A pot of something you can reheat.", importance="low", notes="", status="todo", x=80, y=240, due_date=_add(2)),
             Node(id=walk, project_id=health, title="Walks", description="30 minutes, no headset required.", importance="medium", notes="", status="todo", x=400, y=40, due_date=_today()),
             Node(id=sleep, project_id=health, title="Sleep window", description="Lights down by 22:30.", importance="high", notes="", status="doing", x=400, y=240, due_date=_today()),
@@ -198,6 +262,8 @@ def seed() -> None:
         by_id = {node.id: node for node in node_rows}
 
         pairs = [
+            (shop, list_items, buy_food),
+            (shop, buy_food, put_away),
             (portal, kickoff, brief),
             (portal, brief, research_ops),
             (portal, research_ops, interviews),
@@ -233,7 +299,7 @@ def seed() -> None:
             (spanish, vocab, listen),
             (spanish, listen, grammar),
             (spanish, grammar, speak),
-            (health, shop, cook),
+            (health, food_shop, cook),
             (health, walk, sleep),
             (lisbon, flights, stay),
             (lisbon, stay, days),
@@ -288,7 +354,8 @@ def seed() -> None:
                 Todo(user_id=user_id, project_id=spanish, node_id=speak, text="Book a conversation slot", done=False, due_date=_add(6), recurrence="none", color="blue"),
                 Todo(user_id=user_id, project_id=health, node_id=walk, text="Walk after lunch", done=False, due_date=_today(), recurrence="daily", color="teal"),
                 Todo(user_id=user_id, project_id=health, node_id=cook, text="Cook a pot of soup", done=False, due_date=_add(2), recurrence="weekly", color="teal"),
-                Todo(user_id=user_id, project_id=health, node_id=shop, text="Weekly food shop", done=False, due_date=_add(4), recurrence="weekly", color="teal"),
+                Todo(user_id=user_id, project_id=health, node_id=food_shop, text="Weekly food shop", done=False, due_date=_add(4), recurrence="weekly", color="teal"),
+                Todo(user_id=user_id, project_id=shop, node_id=buy_food, text="Pick up the weekend shop", done=False, due_date=_today(), recurrence="none", color="amber"),
                 Todo(user_id=user_id, project_id=lisbon, node_id=stay, text="Shortlist three stays", done=False, due_date=_today(), recurrence="none", color="violet"),
                 Todo(user_id=user_id, project_id=lisbon, node_id=days, text="Read a short Lisbon walking guide", done=False, due_date=_add(2), recurrence="none", color="violet"),
                 Todo(user_id=user_id, project_id=lisbon, node_id=pack_bag, text="Charge the camera", done=False, due_date=_add(9), recurrence="none", color="violet"),
@@ -302,7 +369,7 @@ def seed() -> None:
             ]
         )
         db.commit()
-        print(f"Seeded demo user {DEMO_EMAIL}")
+        print(f"Seeded demo examples on {DEMO_EMAIL} (simple → complex)")
     except Exception:
         db.rollback()
         raise
