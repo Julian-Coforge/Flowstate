@@ -105,12 +105,20 @@ def list_projects(db: Session, user_id: str, query: str, status: str | None = "a
     if not rows:
         return []
     ids = [row.id for row in rows]
-    nodes = list(db.scalars(select(Node).where(Node.project_id.in_(ids))))
+    nodes = list(
+        db.scalars(select(Node).where(Node.project_id.in_(ids)).options(selectinload(Node.checklist)))
+    )
     todos = list(db.scalars(select(Todo).where(Todo.project_id.in_(ids))))
     result = []
+    today = date.today()
     for project in rows:
         project_nodes = [node for node in nodes if node.project_id == project.id]
         open_tasks = len([todo for todo in todos if todo.project_id == project.id and not todo.done])
+        overdue_count = sum(
+            1
+            for node in project_nodes
+            if node.due_date and node.due_date < today and node.status != "done"
+        )
         result.append(
             {
                 "id": str(project.id),
@@ -120,6 +128,7 @@ def list_projects(db: Session, user_id: str, query: str, status: str | None = "a
                 "createdAt": project.created_at,
                 "progress": progress_of(project_nodes),
                 "openTasks": open_tasks,
+                "overdueCount": overdue_count,
             }
         )
     return result
@@ -144,6 +153,7 @@ def create_project(db: Session, user_id: str, title: str, description: str) -> d
         "createdAt": project.created_at,
         "progress": progress_of([]),
         "openTasks": 0,
+        "overdueCount": 0,
     }
 
 
@@ -205,6 +215,7 @@ def update_project(db: Session, user_id: str, project_id: str, patch: dict) -> d
         "createdAt": project.created_at,
         "progress": progress_of([]),
         "openTasks": 0,
+        "overdueCount": 0,
     }
 
 
@@ -486,6 +497,30 @@ def delete_checklist_item(db: Session, user_id: str, item_id: str) -> None:
     db.delete(item)
 
 
+def clear_project_plan(db: Session, user_id: str, project_id: str) -> None:
+    """Remove the existing map and project-scoped tasks so a refine can replace them."""
+    project = owned_project(db, user_id, project_id)
+    node_ids = list(db.scalars(select(Node.id).where(Node.project_id == project.id)))
+    if node_ids:
+        db.execute(delete(Edge).where(Edge.project_id == project.id))
+        db.execute(delete(ChecklistItem).where(ChecklistItem.node_id.in_(node_ids)))
+        db.execute(delete(Node).where(Node.project_id == project.id))
+    db.execute(delete(Todo).where(Todo.project_id == project.id, Todo.user_id == _uid(user_id)))
+    db.flush()
+
+
+def replace_generated_plan(
+    db: Session,
+    user_id: str,
+    project_id: str,
+    nodes: list[dict],
+    edges: list[dict],
+    todos: list[dict],
+) -> dict:
+    clear_project_plan(db, user_id, project_id)
+    return insert_generated_plan(db, user_id, project_id, nodes, edges, todos)
+
+
 def insert_generated_plan(db: Session, user_id: str, project_id: str, nodes: list[dict], edges: list[dict], todos: list[dict]) -> dict:
     owned_project(db, user_id, project_id)
     key_to_id: dict[str, uuid.UUID] = {}
@@ -701,4 +736,5 @@ def duplicate_project(db: Session, user_id: str, project_id: str) -> dict:
         "createdAt": copy.created_at,
         "progress": progress_of(nodes),
         "openTasks": 0,
+        "overdueCount": 0,
     }

@@ -5,15 +5,43 @@ from datetime import date, timedelta
 from typing import Iterable
 
 
+def _status(node: dict | object) -> str:
+    return node["status"] if isinstance(node, dict) else node.status
+
+
+def _checklist(node: dict | object) -> list:
+    if isinstance(node, dict):
+        return list(node.get("checklist") or [])
+    return list(getattr(node, "checklist", None) or [])
+
+
+def _check_done(item: dict | object) -> bool:
+    if isinstance(item, dict):
+        return bool(item.get("done"))
+    return bool(getattr(item, "done", False))
+
+
+def node_completion(node: dict | object) -> float:
+    """0–1 completion for a step, using status and checklist progress."""
+    status = _status(node)
+    if status == "done":
+        return 1.0
+    status_part = 0.5 if status == "doing" else 0.0
+    checks = _checklist(node)
+    if not checks:
+        return status_part
+    check_part = sum(1 for item in checks if _check_done(item)) / len(checks)
+    return min(0.99, 0.35 * status_part + 0.65 * check_part)
+
+
 def progress(nodes: Iterable[dict | object]) -> dict:
     rows = list(nodes)
     total = len(rows)
-    done = 0
-    for node in rows:
-        status = node["status"] if isinstance(node, dict) else node.status
-        if status == "done":
-            done += 1
-    percent = 0 if total == 0 else round((done / total) * 100)
+    if total == 0:
+        return {"done": 0, "total": 0, "percent": 0}
+    done = sum(1 for node in rows if _status(node) == "done")
+    # Match JS Math.round (half-up for positive values), not banker's round().
+    percent = int((sum(node_completion(node) for node in rows) / total) * 100 + 0.5)
     return {"done": done, "total": total, "percent": percent}
 
 

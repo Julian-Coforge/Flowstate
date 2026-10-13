@@ -1,12 +1,23 @@
 from app.rules import add_months, auto_layout, can_link, next_occurrence, progress
 
 
-def test_progress_splits_done_from_all():
+def test_progress_blends_status_without_checklists():
     assert progress([{"status": "done"}, {"status": "todo"}, {"status": "doing"}, {"status": "done"}]) == {
         "done": 2,
         "total": 4,
-        "percent": 50,
+        "percent": 63,
     }
+
+
+def test_progress_uses_checklist_items():
+    assert progress(
+        [
+            {
+                "status": "todo",
+                "checklist": [{"done": True}, {"done": True}, {"done": False}, {"done": False}],
+            }
+        ]
+    ) == {"done": 0, "total": 1, "percent": 33}
 
 
 def test_progress_empty():

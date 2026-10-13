@@ -14,7 +14,7 @@ import {
   projectsListPath,
 } from "@/lib/data-cache";
 import { RECURRENCE_LABEL } from "@/lib/labels";
-import { addDays, formatLong, isOnTodayList, isUpcoming, todayISO } from "@/lib/tasks";
+import { addDays, formatLong, isOnTodayList, isOverdue, isUpcoming, todayISO } from "@/lib/tasks";
 import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
 
 type CalendarPayload = { todos: Todo[]; steps: CalendarStep[] };
@@ -383,6 +383,9 @@ export default function Dashboard() {
                 <p className="mt-2 text-sm text-base-content/70">
                   {project.progress.percent}% · {project.progress.done} / {project.progress.total} steps
                   {project.openTasks ? ` · ${project.openTasks} open tasks` : ""}
+                  {project.overdueCount ? (
+                    <span className="text-warning"> · {project.overdueCount} overdue</span>
+                  ) : null}
                 </p>
               </Link>
               <div className="project-card-actions pointer-events-none absolute inset-x-0 bottom-0 flex translate-y-1 items-center justify-center gap-1.5 bg-gradient-to-t from-base-100 via-base-100/95 to-transparent px-3 pb-3 pt-8 opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
@@ -499,7 +502,7 @@ function TaskRow({
   today: string | null;
   onToggle: (todo: Todo) => void;
 }) {
-  const overdue = Boolean(today && todo.dueDate && todo.dueDate < today && !todo.done);
+  const overdue = Boolean(today && isOverdue(todo, today));
   return (
     <li className="flex items-start gap-2 text-sm">
       <input
@@ -525,7 +528,7 @@ function TaskRow({
 }
 
 function StepRow({ step, today }: { step: CalendarStep; today: string | null }) {
-  const overdue = Boolean(today && step.dueDate && step.dueDate < today && step.status !== "done");
+  const overdue = Boolean(today && isOverdue({ status: step.status, dueDate: step.dueDate }, today));
   return (
     <li className="flex items-start gap-2 text-sm">
       <span className="mt-1.5 h-2 w-2 shrink-0 rotate-45 bg-primary" aria-hidden />

@@ -37,3 +37,9 @@ export function isUpcoming(task: Dated, today: string, until: string) {
   if (task.done || !task.dueDate) return false;
   return task.dueDate > today && task.dueDate <= until;
 }
+
+export function isOverdue(task: { done?: boolean; status?: string; dueDate: string | null }, today: string) {
+  if (!task.dueDate || task.dueDate >= today) return false;
+  if (typeof task.done === "boolean") return !task.done;
+  return task.status !== "done";
+}

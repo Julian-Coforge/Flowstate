@@ -13,7 +13,7 @@ import {
   PROJECTS_ALL_PATH,
 } from "@/lib/data-cache";
 import { RECURRENCE_LABEL, TASK_COLORS } from "@/lib/labels";
-import { formatMonth, todayISO } from "@/lib/tasks";
+import { formatMonth, isOverdue, todayISO } from "@/lib/tasks";
 import type { CalendarStep, ProjectSummary, Recurrence, TaskColor, Todo } from "@/lib/types";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -267,8 +267,9 @@ export default function CalendarView() {
         </form>
         <ul className="mt-4 grid gap-2">
           {selectedItems.length === 0 ? <li className="text-sm text-base-content/60">Nothing due this day.</li> : null}
-          {selectedItems.map((item) =>
-            item.kind === "step" ? (
+          {selectedItems.map((item) => {
+            const overdue = isOverdue(item, today);
+            return item.kind === "step" ? (
               <li key={`step-${item.id}`} className="flex items-start gap-2 text-sm">
                 <span className="mt-1.5 h-2 w-2 shrink-0 rotate-45 bg-primary" aria-hidden />
                 <span className={item.done ? "text-base-content/50 line-through" : ""}>
@@ -286,6 +287,7 @@ export default function CalendarView() {
                       {item.projectTitle}
                     </Link>
                   ) : null}
+                  {overdue ? <span className="mt-0.5 block text-xs text-warning">Overdue</span> : null}
                 </span>
               </li>
             ) : (
@@ -302,10 +304,11 @@ export default function CalendarView() {
                   {item.text}
                   {item.recurrence !== "none" ? <span className="ml-1 text-xs text-primary">repeat</span> : null}
                   {item.projectTitle ? <span className="mt-0.5 block text-xs text-base-content/50">{item.projectTitle}</span> : null}
+                  {overdue ? <span className="mt-0.5 block text-xs text-warning">Overdue</span> : null}
                 </span>
               </li>
-            ),
-          )}
+            );
+          })}
         </ul>
       </section>
     </main>

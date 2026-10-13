@@ -41,6 +41,7 @@ import {
 import { inferHandles } from "@/lib/layout";
 import { IMPORTANCE_LABEL, RECURRENCE_LABEL, STATUS_LABEL } from "@/lib/labels";
 import { progress } from "@/lib/progress";
+import { isOverdue, todayISO } from "@/lib/tasks";
 import { readTheme, type Theme } from "@/lib/theme";
 import type { ChecklistItem, FlowEdge, FlowNode, Importance, NodeStatus, Recurrence, TaskColor, Todo } from "@/lib/types";
 
@@ -127,8 +128,12 @@ type StepData = {
   importance: Importance;
   linking?: boolean;
   expanded?: boolean;
+  overdue?: boolean;
+  atRisk?: boolean;
   step?: FlowNode;
 };
+
+type RefineInstruction = "more_detail" | "compress" | "add_testing";
 
 type StepNode = Node<StepData, "step">;
 
@@ -160,8 +165,15 @@ function StepCard({ data, id }: NodeProps<StepNode>) {
     updateNodeInternals(id);
   }, [data.expanded, id, updateNodeInternals]);
 
-  const border =
-    data.status === "done" ? "border-success" : data.status === "doing" ? "border-primary" : "border-base-300";
+  const border = data.overdue
+    ? "border-warning"
+    : data.atRisk
+      ? "border-warning/50"
+      : data.status === "done"
+        ? "border-success"
+        : data.status === "doing"
+          ? "border-primary"
+          : "border-base-300";
 
   if (data.expanded && data.step) {
     return (
@@ -177,6 +189,11 @@ function StepCard({ data, id }: NodeProps<StepNode>) {
             Close
           </button>
         </div>
+        {data.overdue || data.atRisk ? (
+          <p className={`mb-2 text-xs ${data.overdue ? "text-warning" : "text-warning/80"}`}>
+            {data.overdue ? "Overdue" : "At risk — waiting on an overdue step"}
+          </p>
+        ) : null}
         <div className="nodrag nopan nowheel max-h-[28rem] overflow-y-auto" data-step-editor>
           <InlineEditor step={data.step} />
         </div>
@@ -193,8 +210,10 @@ function StepCard({ data, id }: NodeProps<StepNode>) {
       <NodeHandles />
       <div className="text-sm font-semibold leading-snug">{data.title}</div>
       <div className="mt-1 text-[11px] uppercase tracking-wide text-base-content/50">{STATUS_LABEL[data.status]}</div>
+      {data.overdue ? <div className="mt-1 text-[11px] font-medium text-warning">Overdue</div> : null}
+      {!data.overdue && data.atRisk ? <div className="mt-1 text-[11px] font-medium text-warning/80">At risk</div> : null}
       {data.step?.dueDate ? (
-        <div className="mt-1 text-[11px] text-base-content/50">
+        <div className={`mt-1 text-[11px] ${data.overdue ? "text-warning" : "text-base-content/50"}`}>
           {data.step.dueDate}
           {data.step.recurrence && data.step.recurrence !== "none" ? ` · ${RECURRENCE_LABEL[data.step.recurrence]}` : ""}
         </div>
@@ -365,6 +384,17 @@ function Canvas({ projectId }: { projectId: string }) {
   }, [projectId, setEdges, setNodes]);
 
   useEffect(() => {
+    const today = todayISO();
+    const overdueIds = new Set(
+      steps.filter((step) => isOverdue({ status: step.status, dueDate: step.dueDate }, today)).map((step) => step.id),
+    );
+    const atRiskIds = new Set<string>();
+    for (const edge of edges) {
+      if (overdueIds.has(edge.source) && !overdueIds.has(edge.target)) {
+        const target = steps.find((step) => step.id === edge.target);
+        if (target && target.status !== "done") atRiskIds.add(edge.target);
+      }
+    }
     setNodes((current) =>
       current.map((node) => {
         const step = steps.find((item) => item.id === node.id);
@@ -384,12 +414,14 @@ function Canvas({ projectId }: { projectId: string }) {
               node.id === rightDragLink?.sourceId ||
               node.id === rightDragLink?.targetId,
             expanded,
+            overdue: overdueIds.has(node.id),
+            atRisk: atRiskIds.has(node.id),
             step,
           },
         };
       }),
     );
-  }, [steps, selectedId, linkSource, wheelFocusId, rightDragLink, setNodes]);
+  }, [steps, edges, selectedId, linkSource, wheelFocusId, rightDragLink, setNodes]);
 
   const previousSelectedId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
@@ -407,6 +439,10 @@ function Canvas({ projectId }: { projectId: string }) {
   }, [selectedId, ready, fitView]);
 
   const summary = useMemo(() => progress(steps), [steps]);
+  const overdueCount = useMemo(() => {
+    const today = todayISO();
+    return steps.filter((step) => isOverdue({ status: step.status, dueDate: step.dueDate }, today)).length;
+  }, [steps]);
 
   const patchStep = useCallback(async (id: string, patch: NodePatch) => {
     setSteps((current) => current.map((step) => (step.id === id ? { ...step, ...patch } : step)));
@@ -1177,12 +1213,52 @@ function Canvas({ projectId }: { projectId: string }) {
       });
       applyBundle(data);
       invalidateLists();
+      invalidateCached(projectBundlePath(projectId));
+      putCached(projectBundlePath(projectId), data);
       setSelectedId(null);
+      historyRef.current = { past: [], future: [] };
+      setCanUndo(false);
+      setCanRedo(false);
       setIdea("");
       setDocumentFile(null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate a plan");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function refinePlan(instruction: RefineInstruction) {
+    const labels: Record<RefineInstruction, string> = {
+      more_detail: "Add more detail",
+      compress: "Compress the plan",
+      add_testing: "Add testing",
+    };
+    if (
+      !confirm(
+        `${labels[instruction]}? This replaces the current map and project tasks with a refined plan.`,
+      )
+    ) {
+      return;
+    }
+    setGenerating(true);
+    try {
+      const data = await api<Bundle>(`/api/projects/${projectId}/refine`, {
+        method: "POST",
+        body: JSON.stringify({ instruction, mode }),
+      });
+      applyBundle(data);
+      invalidateLists();
+      invalidateCached(projectBundlePath(projectId));
+      putCached(projectBundlePath(projectId), data);
+      setSelectedId(null);
+      historyRef.current = { past: [], future: [] };
+      setCanUndo(false);
+      setCanRedo(false);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not refine the plan");
     } finally {
       setGenerating(false);
     }
@@ -1238,6 +1314,7 @@ function Canvas({ projectId }: { projectId: string }) {
             </h1>
             <p className="text-xs text-base-content/60">
               {summary.percent}% · {summary.done} / {summary.total} steps
+              {overdueCount ? <span className="text-warning"> · {overdueCount} overdue</span> : null}
               {linkMode ? (linkSource ? " · Tap the second step" : " · Tap the first step") : ""}
             </p>
           </div>
@@ -1409,6 +1486,59 @@ function Canvas({ projectId }: { projectId: string }) {
             ) : null}
           </div>
           <aside className="panel w-full max-lg:max-h-[36vh] overflow-y-auto border-t border-base-300 bg-base-100 p-4 lg:w-80 lg:border-t-0 lg:border-l">
+            {aiOn && steps.length > 0 ? (
+              <section className="mb-5 rounded-lg border border-base-300 bg-base-200/40 p-3">
+                <h2 className="text-sm font-semibold">Refine plan</h2>
+                <p className="mt-1 text-xs text-base-content/60">
+                  Rework the map with AI. Replaces the current steps and project tasks.
+                </p>
+                <div className="mt-2 flex gap-1.5">
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${mode === "quick" ? "btn-primary" : "btn-ghost border border-base-300 bg-base-100"}`}
+                    disabled={generating}
+                    onClick={() => setMode("quick")}
+                  >
+                    Quick
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${mode === "thinking" ? "btn-primary" : "btn-ghost border border-base-300 bg-base-100"}`}
+                    disabled={generating}
+                    onClick={() => setMode("thinking")}
+                  >
+                    Thinking
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
+                    type="button"
+                    disabled={generating}
+                    onClick={() => void refinePlan("more_detail")}
+                  >
+                    More detail
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
+                    type="button"
+                    disabled={generating}
+                    onClick={() => void refinePlan("compress")}
+                  >
+                    Compress
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
+                    type="button"
+                    disabled={generating}
+                    onClick={() => void refinePlan("add_testing")}
+                  >
+                    Add testing
+                  </button>
+                </div>
+                {generating ? <p className="mt-2 text-xs text-base-content/60">Working on the plan…</p> : null}
+              </section>
+            ) : null}
             <h2 className="text-lg font-semibold">Project tasks</h2>
             {project?.description ? <p className="mt-1 text-sm text-base-content/70">{project.description}</p> : null}
             <form onSubmit={(event) => void addTask(event)} className="mt-3 grid gap-2.5">
@@ -1439,23 +1569,31 @@ function Canvas({ projectId }: { projectId: string }) {
             </form>
             <ul className="mt-4 grid gap-2">
               {todos.length === 0 ? <li className="text-sm text-base-content/60">No tasks on this project yet.</li> : null}
-              {todos.map((todo) => (
-                <li key={todo.id} className="flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-sm mt-0.5"
-                    checked={todo.done}
-                    onChange={() => void toggleTodo(todo)}
-                    aria-label={todo.text}
-                  />
-                  <ColorDot color={todo.color} />
-                  <span className={todo.done ? "text-base-content/50 line-through" : ""}>
-                    {todo.text}
-                    {todo.recurrence && todo.recurrence !== "none" ? <span className="ml-1 text-xs text-primary">repeat</span> : null}
-                    {todo.dueDate ? <span className="mt-0.5 block text-xs text-base-content/50">{todo.dueDate}</span> : null}
-                  </span>
-                </li>
-              ))}
+              {todos.map((todo) => {
+                const overdue = isOverdue({ done: todo.done, dueDate: todo.dueDate }, todayISO());
+                return (
+                  <li key={todo.id} className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-sm mt-0.5"
+                      checked={todo.done}
+                      onChange={() => void toggleTodo(todo)}
+                      aria-label={todo.text}
+                    />
+                    <ColorDot color={todo.color} />
+                    <span className={todo.done ? "text-base-content/50 line-through" : ""}>
+                      {todo.text}
+                      {todo.recurrence && todo.recurrence !== "none" ? <span className="ml-1 text-xs text-primary">repeat</span> : null}
+                      {todo.dueDate ? (
+                        <span className={`mt-0.5 block text-xs ${overdue ? "text-warning" : "text-base-content/50"}`}>
+                          {todo.dueDate}
+                          {overdue ? " · Overdue" : ""}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </aside>
         </div>

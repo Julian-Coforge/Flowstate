@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.db import get_db, get_engine
 from app.documents import extract_document_text
 from app.errors import HttpError, http_error_handler, http_exception_handler
-from app.generate import check_rate_limit, generate_plan
+from app.generate import check_rate_limit, generate_plan, refine_plan
 from app.schemas import (
     ChecklistCreate,
     ChecklistPatch,
@@ -26,6 +26,7 @@ from app.schemas import (
     NodePositionsBody,
     ProjectCreate,
     ProjectPatch,
+    RefineBody,
     TodoCreate,
     TodoPatch,
 )
@@ -182,6 +183,54 @@ async def generate(
 
     plan = generate_plan(cfg, body.idea, body.mode, document_text=document_text)
     return store.insert_generated_plan(db, user.id, project_id, plan["nodes"], plan["edges"], plan["todos"])
+
+
+@app.post("/api/projects/{project_id}/refine")
+def refine(
+    project_id: str,
+    body: RefineBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    cfg = get_settings()
+    if not cfg.openai_api_key:
+        raise HttpError("Plan generation is turned off on this server.", 503)
+    bundle = store.get_project_bundle(db, user.id, project_id)
+    if not bundle["nodes"]:
+        raise HttpError("Add or generate a plan before refining it", 400)
+    check_rate_limit(user.id)
+    id_to_key = {node["id"]: f"n{index + 1}" for index, node in enumerate(bundle["nodes"])}
+    current = {
+        "nodes": [
+            {
+                "key": id_to_key[node["id"]],
+                "title": node["title"],
+                "description": node.get("description") or "",
+                "importance": node.get("importance") or "medium",
+                "checklist": [item["text"] for item in (node.get("checklist") or []) if item.get("text")],
+                "dueDate": node.get("dueDate"),
+                "recurrence": node.get("recurrence") or "none",
+            }
+            for node in bundle["nodes"]
+        ],
+        "edges": [
+            {"from": id_to_key[edge["sourceNodeId"]], "to": id_to_key[edge["targetNodeId"]]}
+            for edge in bundle["edges"]
+            if edge["sourceNodeId"] in id_to_key and edge["targetNodeId"] in id_to_key
+        ],
+        "todos": [
+            {
+                "text": todo["text"],
+                "dueDate": todo.get("dueDate"),
+                "recurrence": todo.get("recurrence") or "none",
+                "nodeKey": id_to_key.get(todo.get("nodeId") or "") or None,
+            }
+            for todo in bundle["todos"]
+        ],
+    }
+
+    plan = refine_plan(cfg, current, body.instruction, body.mode)
+    return store.replace_generated_plan(db, user.id, project_id, plan["nodes"], plan["edges"], plan["todos"])
 
 
 @app.post("/api/nodes", status_code=201)

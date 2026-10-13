@@ -68,6 +68,7 @@ export type ProjectSummary = {
   createdAt: number;
   progress: Progress;
   openTasks: number;
+  overdueCount: number;
 };
 
 export type PublicUser = { id: string; email: string; name: string };

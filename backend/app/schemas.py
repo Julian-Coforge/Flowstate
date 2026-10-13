@@ -176,6 +176,14 @@ class GenerateBody(BaseModel):
         return value.strip()
 
 
+RefineInstruction = Literal["more_detail", "compress", "add_testing"]
+
+
+class RefineBody(BaseModel):
+    instruction: RefineInstruction
+    mode: GenerateMode = "quick"
+
+
 class PlanNode(BaseModel):
     key: str = Field(min_length=1, max_length=40)
     title: str = Field(min_length=1, max_length=120)
