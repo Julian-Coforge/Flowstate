@@ -8,7 +8,6 @@ import {
   ConnectionMode,
   Controls,
   Handle,
-  MiniMap,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -1584,7 +1583,6 @@ function Canvas({ projectId }: { projectId: string }) {
               >
                 <Background />
                 <Controls />
-                <MiniMap />
               </ReactFlow>
             ) : null}
             {view === "map" && !ready ? <p className="p-6 text-base-content/60">Loading the canvas…</p> : null}
