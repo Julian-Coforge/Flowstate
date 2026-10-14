@@ -29,6 +29,7 @@ import "@xyflow/react/dist/style.css";
 import CanvasWheel, { wheelActionAtPoint, type WheelAction } from "@/components/CanvasWheel";
 import ColorPicker, { ColorDot } from "@/components/ColorPicker";
 import DocumentUpload from "@/components/DocumentUpload";
+import ProjectKanban from "@/components/ProjectKanban";
 import { api } from "@/lib/api";
 import {
   cachedGet,
@@ -317,6 +318,7 @@ function Canvas({ projectId }: { projectId: string }) {
   });
   const { idea, documentFile, mode } = generateDraft;
   const [generating, setGenerating] = useState(false);
+  const [view, setView] = useState<"map" | "board">("map");
   const [wheel, setWheel] = useState<WheelState | null>(null);
   const [hoveredWheelId, setHoveredWheelId] = useState<string | null>(null);
   const [wheelFocusId, setWheelFocusId] = useState<string | null>(null);
@@ -1333,35 +1335,64 @@ function Canvas({ projectId }: { projectId: string }) {
               {linkMode ? (linkSource ? " · Tap the second step" : " · Tap the first step") : ""}
             </p>
           </div>
+          <div className="flex gap-1 rounded-lg border border-base-300 bg-base-100 p-0.5" role="tablist" aria-label="Project view">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "map"}
+              className={`btn btn-xs ${view === "map" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setView("map")}
+            >
+              Map
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "board"}
+              className={`btn btn-xs ${view === "board" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => {
+                setView("board");
+                setLinkMode(false);
+                setLinkSource(null);
+                setWheel(null);
+              }}
+            >
+              Board
+            </button>
+          </div>
           <button className="btn btn-primary btn-sm" type="button" onClick={() => void addStep()} title="N">
             Add step
           </button>
-          <button
-            className={`btn btn-sm ${linkMode ? "btn-primary" : "btn-ghost"}`}
-            type="button"
-            title="L"
-            onClick={() => {
-              setLinkMode((current) => !current);
-              setLinkSource(null);
-            }}
-          >
-            Link
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void deleteSelection()} title="Delete">
-            Delete
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void undo()} disabled={!canUndo} title="⌘Z">
-            Undo
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void redo()} disabled={!canRedo} title="⇧⌘Z">
-            Redo
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void tidy()} disabled={tidying || steps.length === 0} title="Tidy the map">
-            {tidying ? "Tidying…" : "Tidy map"}
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => setHelp(true)} title="?">
-            Shortcuts
-          </button>
+          {view === "map" ? (
+            <>
+              <button
+                className={`btn btn-sm ${linkMode ? "btn-primary" : "btn-ghost"}`}
+                type="button"
+                title="L"
+                onClick={() => {
+                  setLinkMode((current) => !current);
+                  setLinkSource(null);
+                }}
+              >
+                Link
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void deleteSelection()} title="Delete">
+                Delete
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void undo()} disabled={!canUndo} title="⌘Z">
+                Undo
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void redo()} disabled={!canRedo} title="⇧⌘Z">
+                Redo
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void tidy()} disabled={tidying || steps.length === 0} title="Tidy the map">
+                {tidying ? "Tidying…" : "Tidy map"}
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setHelp(true)} title="?">
+                Shortcuts
+              </button>
+            </>
+          ) : null}
           <button className="btn btn-ghost btn-sm" type="button" onClick={() => void archiveProject()}>
             {project?.status === "archived" ? "Restore" : "Archive"}
           </button>
@@ -1377,10 +1408,37 @@ function Canvas({ projectId }: { projectId: string }) {
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
           <div
             className="relative min-h-[60vh] flex-1 lg:min-h-0"
-            onPointerDown={onCanvasPointerDown}
-            onContextMenu={(event) => event.preventDefault()}
+            onPointerDown={view === "map" ? onCanvasPointerDown : undefined}
+            onContextMenu={view === "map" ? (event) => event.preventDefault() : undefined}
           >
-            {ready ? (
+            {view === "board" ? (
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="min-h-0 flex-1">
+                  <ProjectKanban
+                    steps={steps}
+                    edges={edges.map((edge) => ({
+                      sourceNodeId: String(edge.source),
+                      targetNodeId: String(edge.target),
+                    }))}
+                    selectedId={selectedId}
+                    onSelect={setSelectedId}
+                    onStatusChange={(id, status) => void patchStep(id, { status })}
+                  />
+                </div>
+                {selectedId && steps.some((step) => step.id === selectedId) ? (
+                  <div className="max-h-[42%] overflow-y-auto border-t border-base-300 bg-base-100 p-4">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-base-content/50">Step details</p>
+                      <button className="btn btn-ghost btn-xs" type="button" onClick={() => setSelectedId(null)}>
+                        Close
+                      </button>
+                    </div>
+                    <InlineEditor step={steps.find((step) => step.id === selectedId)!} />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {view === "map" && ready ? (
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -1435,10 +1493,9 @@ function Canvas({ projectId }: { projectId: string }) {
                 <Controls />
                 <MiniMap />
               </ReactFlow>
-            ) : (
-              <p className="p-6 text-base-content/60">Loading the canvas…</p>
-            )}
-            {rightDragLink ? (
+            ) : null}
+            {view === "map" && !ready ? <p className="p-6 text-base-content/60">Loading the canvas…</p> : null}
+            {view === "map" && rightDragLink ? (
               <svg className="pointer-events-none fixed inset-0 z-[4]" aria-hidden>
                 <path
                   d={
@@ -1459,7 +1516,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 />
               </svg>
             ) : null}
-            {wheel ? (
+            {view === "map" && wheel ? (
               <CanvasWheel
                 x={wheel.x}
                 y={wheel.y}
@@ -1468,7 +1525,7 @@ function Canvas({ projectId }: { projectId: string }) {
                 onClose={closeWheel}
               />
             ) : null}
-            {ready && steps.length === 0 ? (
+            {view === "map" && ready && steps.length === 0 ? (
               <div className="absolute inset-0 flex items-center justify-center p-6">
                 <div className="max-w-md rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
                   <p className="text-base-content/70">Add a step to start the map, or generate a plan from an idea.</p>
