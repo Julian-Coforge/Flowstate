@@ -92,6 +92,20 @@ body {
   box-shadow: var(--shade-header);
 }
 
+.account-chip {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.account-chip:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .panel {
   box-shadow: var(--shade-panel);
 }

@@ -339,11 +339,33 @@ function Canvas({ projectId }: { projectId: string }) {
   const [canRedo, setCanRedo] = useState(false);
   const [tidying, setTidying] = useState(false);
   const [toolsMinimized, setToolsMinimized] = useState(false);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState("");
+  const [renamingProject, setRenamingProject] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     nodesRef.current = nodes;
     edgesRef.current = edges;
     stepsRef.current = steps;
   }, [nodes, edges, steps]);
+
+  useEffect(() => {
+    if (!projectMenuOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!projectMenuRef.current?.contains(event.target as HTMLElement)) setProjectMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProjectMenuOpen(false);
+    };
+    // Defer so the opening click does not immediately close the menu.
+    const timer = window.setTimeout(() => window.addEventListener("pointerdown", close), 0);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [projectMenuOpen]);
 
   function record(action: HistoryAction) {
     historyRef.current.past = [...historyRef.current.past.slice(-49), action];
@@ -1298,6 +1320,35 @@ function Canvas({ projectId }: { projectId: string }) {
     }
   }
 
+  async function renameProject(event: FormEvent) {
+    event.preventDefault();
+    const title = projectNameDraft.trim();
+    if (!title) {
+      setError("Give the project a name");
+      return;
+    }
+    if (title === project?.title) {
+      setProjectMenuOpen(false);
+      return;
+    }
+    setRenamingProject(true);
+    try {
+      const updated = await api<{ title: string }>(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title }),
+      });
+      setProject((current) => (current ? { ...current, title: updated.title } : current));
+      invalidateLists();
+      invalidateCached(projectBundlePath(projectId));
+      setProjectMenuOpen(false);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not rename the project");
+    } finally {
+      setRenamingProject(false);
+    }
+  }
+
   async function removeProject() {
     if (!confirm("Delete this project, its steps, and its tasks?")) return;
     try {
@@ -1324,54 +1375,123 @@ function Canvas({ projectId }: { projectId: string }) {
   return (
     <CanvasApiContext.Provider value={canvasApi}>
       <div className="canvas-shell flex h-[calc(100svh-4rem)] flex-col">
-        <div className="app-header flex flex-wrap items-center gap-2 overflow-x-auto border-b border-base-300 bg-base-100/95 px-3 py-2 backdrop-blur-md">
-          <div className="mr-auto min-w-0">
-            <h1 className="flex items-center gap-2 truncate text-lg font-semibold">
-              <span className="truncate">{project?.title ?? "Project"}</span>
-              {project?.status === "archived" ? <span className="badge badge-ghost badge-sm">Archived</span> : null}
-            </h1>
-            <p className="text-xs text-base-content/60">
-              {summary.percent}% · {summary.done} / {summary.total} steps
-              {overdueCount ? <span className="text-warning"> · {overdueCount} overdue</span> : null}
-              {linkMode ? (linkSource ? " · Tap the second step" : " · Tap the first step") : ""}
-            </p>
+        <div className="app-header relative z-40 flex flex-wrap items-stretch border-b border-base-300 bg-base-100/95 backdrop-blur-md lg:flex-nowrap">
+          <div className="mr-auto flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <h1 className="flex items-center gap-2 truncate text-lg font-semibold">
+                <span className="truncate">{project?.title ?? "Project"}</span>
+                {project?.status === "archived" ? <span className="badge badge-ghost badge-sm">Archived</span> : null}
+              </h1>
+              <p className="text-xs text-base-content/60">
+                {summary.percent}% · {summary.done} / {summary.total} steps
+                {overdueCount ? <span className="text-warning"> · {overdueCount} overdue</span> : null}
+                {linkMode ? (linkSource ? " · Tap the second step" : " · Tap the first step") : ""}
+              </p>
+            </div>
+            {view === "board" ? (
+              <button className="btn btn-primary btn-sm h-8 min-h-0 shrink-0" type="button" onClick={() => void addStep()} title="N">
+                Add step
+              </button>
+            ) : null}
           </div>
-          <div className="flex gap-1 rounded-lg border border-base-300 bg-base-100 p-0.5" role="tablist" aria-label="Project view">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "map"}
-              className={`btn btn-xs ${view === "map" ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => setView("map")}
-            >
-              Map
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "board"}
-              className={`btn btn-xs ${view === "board" ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => {
-                setView("board");
-                setLinkMode(false);
-                setLinkSource(null);
-                setWheel(null);
-              }}
-            >
-              Board
-            </button>
+          <div className="flex w-full shrink-0 items-center gap-2 px-4 py-2 max-lg:ml-auto max-lg:w-auto lg:w-80">
+            <div className="flex h-8 items-stretch gap-0.5 rounded-lg border border-base-300 bg-base-100 p-0.5" role="tablist" aria-label="Project view">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "map"}
+                className={`btn btn-sm h-full min-h-0 ${view === "map" ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setView("map")}
+              >
+                Map
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "board"}
+                className={`btn btn-sm h-full min-h-0 ${view === "board" ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => {
+                  setView("board");
+                  setLinkMode(false);
+                  setLinkSource(null);
+                  setWheel(null);
+                }}
+              >
+                Board
+              </button>
+            </div>
+            <div className="relative ml-auto" ref={projectMenuRef}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm h-8 min-h-0 gap-1.5"
+                aria-expanded={projectMenuOpen}
+                aria-haspopup="menu"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setProjectNameDraft(project?.title ?? "");
+                  setProjectMenuOpen((current) => !current);
+                }}
+              >
+                Project settings
+                <svg
+                  viewBox="0 0 24 24"
+                  className={`h-3.5 w-3.5 shrink-0 opacity-60 transition-transform duration-200 ${projectMenuOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden
+                >
+                  <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {projectMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-[calc(100%+0.4rem)] z-50 w-64 overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-xl"
+                >
+                  <form className="border-b border-base-300/80 p-3" onSubmit={(event) => void renameProject(event)}>
+                    <label className="block text-[0.65rem] font-medium uppercase tracking-[0.12em] text-base-content/50">
+                      Project name
+                      <input
+                        className="input input-sm mt-1.5 w-full"
+                        value={projectNameDraft}
+                        onChange={(event) => setProjectNameDraft(event.target.value)}
+                        maxLength={120}
+                        required
+                        autoFocus
+                      />
+                    </label>
+                    <button className="btn btn-primary btn-sm mt-2 w-full" type="submit" disabled={renamingProject}>
+                      {renamingProject ? "Saving…" : "Save name"}
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center px-3.5 py-2.5 text-left text-sm hover:bg-base-200"
+                    onClick={() => {
+                      setProjectMenuOpen(false);
+                      void archiveProject();
+                    }}
+                  >
+                    {project?.status === "archived" ? "Restore project" : "Archive project"}
+                  </button>
+                  <div className="mx-2 border-t border-base-300/80" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center px-3.5 py-2.5 text-left text-sm text-error hover:bg-error/10"
+                    onClick={() => {
+                      setProjectMenuOpen(false);
+                      void removeProject();
+                    }}
+                  >
+                    Delete project
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
-          {view === "board" ? (
-            <button className="btn btn-primary btn-sm" type="button" onClick={() => void addStep()} title="N">
-              Add step
-            </button>
-          ) : null}
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void archiveProject()}>
-            {project?.status === "archived" ? "Restore" : "Archive"}
-          </button>
-          <button className="btn btn-ghost btn-sm text-error" type="button" onClick={() => void removeProject()}>
-            Delete project
-          </button>
         </div>
         {error ? (
           <p className="bg-error/10 px-3 py-2 text-sm text-error" role="alert">
