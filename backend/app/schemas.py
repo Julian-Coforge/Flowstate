@@ -23,12 +23,23 @@ class ProjectCreate(BaseModel):
 
 
 class ProjectPatch(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
     status: ProjectStatus | None = None
+
+    @field_validator("title", "description")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
 
     @model_validator(mode="after")
     def require_fields(self):
-        if self.status is None:
+        if self.title is None and self.description is None and self.status is None:
             raise ValueError("Nothing to update")
+        if self.title is not None and not self.title:
+            raise ValueError("Title cannot be empty")
         return self
 
 

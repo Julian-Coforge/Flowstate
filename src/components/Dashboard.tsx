@@ -8,9 +8,11 @@ import DocumentUpload from "@/components/DocumentUpload";
 import {
   CALENDAR_PATH,
   cachedGet,
+  invalidateCached,
   invalidateLists,
   peekCached,
   prefetchProject,
+  projectBundlePath,
   projectsListPath,
 } from "@/lib/data-cache";
 import { RECURRENCE_LABEL } from "@/lib/labels";
@@ -48,6 +50,9 @@ export default function Dashboard() {
   const [steps, setSteps] = useState<CalendarStep[]>(() => initialCalendar?.steps ?? []);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [activeProjects, setActiveProjects] = useState<ProjectSummary[]>(() => initialProjects ?? []);
   const [create, setCreate, clearCreate] = useFormDraft<CreateDraft>("dashboard:create", {
     title: "",
@@ -163,6 +168,46 @@ export default function Dashboard() {
       setError(err instanceof Error ? err.message : "Could not duplicate the project");
     } finally {
       setDuplicating(null);
+    }
+  }
+
+  function startEdit(project: ProjectSummary) {
+    setEditingId(project.id);
+    setEditTitle(project.title);
+    setEditDescription(project.description ?? "");
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditTitle("");
+    setEditDescription("");
+  }
+
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingId) return;
+    const title = editTitle.trim();
+    if (!title) {
+      setError("Give the project a name");
+      return;
+    }
+    setBusyId(editingId);
+    try {
+      const updated = await api<ProjectSummary>(`/api/projects/${editingId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title, description: editDescription.trim() }),
+      });
+      invalidateLists();
+      invalidateCached(projectBundlePath(editingId));
+      setProjects((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
+      setActiveProjects((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
+      cancelEdit();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the project");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -314,12 +359,12 @@ export default function Dashboard() {
             </button>
           </div>
           {aiOn ? (
-            <div className="panel surface-card rounded-lg border border-base-300 bg-base-100 p-4">
+            <div className="panel surface-card rounded-lg border border-base-300 bg-base-100 p-3">
               <label className="block text-sm font-medium">
                 Generate a plan
                 <textarea
-                  className="textarea mt-1.5 w-full"
-                  rows={2}
+                  className="textarea mt-1 w-full min-h-0 py-1.5 leading-snug"
+                  rows={1}
                   maxLength={500}
                   placeholder="e.g. Holiday starting next Monday, or weekly shopping from 12 November"
                   value={idea}
@@ -327,18 +372,28 @@ export default function Dashboard() {
                   aria-label="Generate a plan from this idea"
                 />
               </label>
-              <DocumentUpload file={documentFile} onChange={(file) => setCreate({ documentFile: file })} />
-              <div className="mt-3 flex gap-2">
-                <button type="button" className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`} onClick={() => setCreate({ mode: "quick" })}>
-                  Quick
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`}
-                  onClick={() => setCreate({ mode: "thinking" })}
-                >
-                  Thinking
-                </button>
+              <div className="mt-2 flex items-end gap-2">
+                <div className="flex shrink-0 flex-col gap-1">
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${mode === "quick" ? "btn-primary" : "btn-ghost"}`}
+                    onClick={() => setCreate({ mode: "quick" })}
+                  >
+                    Quick
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`}
+                    onClick={() => setCreate({ mode: "thinking" })}
+                  >
+                    Thinking
+                  </button>
+                </div>
+                <DocumentUpload
+                  className="min-w-0 flex-1"
+                  file={documentFile}
+                  onChange={(file) => setCreate({ documentFile: file })}
+                />
               </div>
             </div>
           ) : null}
@@ -391,69 +446,114 @@ export default function Dashboard() {
           ) : null}
           {projects.map((project) => (
             <article key={project.id} className="project-card group relative rounded-lg border border-base-300 bg-base-100">
-              <Link
-                href={`/projects/${project.id}`}
-                transitionTypes={["nav-forward"]}
-                className="block p-4 pb-5"
-                onMouseEnter={() => prefetchProject(project.id)}
-                onFocus={() => prefetchProject(project.id)}
-              >
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold">{project.title}</h2>
-                  {project.status === "archived" ? (
-                    <span className="badge badge-ghost badge-sm">Archived</span>
-                  ) : null}
-                </div>
-                {project.description ? <p className="mt-1 line-clamp-2 text-sm text-base-content/70">{project.description}</p> : null}
-                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-base-200">
-                  <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${project.progress.percent}%` }} />
-                </div>
-                <p className="mt-2 text-sm text-base-content/70">
-                  {project.progress.percent}% · {project.progress.done} / {project.progress.total} steps
-                  {project.openTasks ? ` · ${project.openTasks} open tasks` : ""}
-                  {project.overdueCount ? (
-                    <span className="text-warning"> · {project.overdueCount} overdue</span>
-                  ) : null}
-                </p>
-              </Link>
-              <div className="project-card-actions pointer-events-none absolute inset-x-0 bottom-0 flex translate-y-1 items-center justify-center gap-1.5 bg-gradient-to-t from-base-100 via-base-100/95 to-transparent px-3 pb-3 pt-8 opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
-                <button
-                  className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
-                  type="button"
-                  disabled={duplicating === project.id || busyId === project.id}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void duplicate(project.id);
-                  }}
-                >
-                  {duplicating === project.id ? "Copying…" : "Duplicate"}
-                </button>
-                <button
-                  className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
-                  type="button"
-                  disabled={busyId === project.id}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void setProjectStatus(project, project.status === "archived" ? "active" : "archived");
-                  }}
-                >
-                  {project.status === "archived" ? "Restore" : "Archive"}
-                </button>
-                <button
-                  className="btn btn-ghost btn-xs border border-error/30 bg-base-100 text-error"
-                  type="button"
-                  disabled={busyId === project.id}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void removeProject(project);
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
+              {editingId === project.id ? (
+                <form onSubmit={(event) => void saveEdit(event)} className="grid gap-2.5 p-4">
+                  <input
+                    className="input w-full"
+                    value={editTitle}
+                    onChange={(event) => setEditTitle(event.target.value)}
+                    aria-label="Project name"
+                    required
+                    maxLength={120}
+                    autoFocus
+                  />
+                  <textarea
+                    className="textarea w-full"
+                    rows={2}
+                    value={editDescription}
+                    onChange={(event) => setEditDescription(event.target.value)}
+                    aria-label="Project description"
+                    maxLength={2000}
+                    placeholder="Optional description"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    <button className="btn btn-primary btn-xs" type="submit" disabled={busyId === project.id}>
+                      {busyId === project.id ? "Saving…" : "Save"}
+                    </button>
+                    <button className="btn btn-ghost btn-xs border border-base-300" type="button" onClick={cancelEdit} disabled={busyId === project.id}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <Link
+                    href={`/projects/${project.id}`}
+                    transitionTypes={["nav-forward"]}
+                    className="block p-4 pb-5"
+                    onMouseEnter={() => prefetchProject(project.id)}
+                    onFocus={() => prefetchProject(project.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-semibold">{project.title}</h2>
+                      {project.status === "archived" ? (
+                        <span className="badge badge-ghost badge-sm">Archived</span>
+                      ) : null}
+                    </div>
+                    {project.description ? <p className="mt-1 line-clamp-2 text-sm text-base-content/70">{project.description}</p> : null}
+                    <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-base-200">
+                      <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${project.progress.percent}%` }} />
+                    </div>
+                    <p className="mt-2 text-sm text-base-content/70">
+                      {project.progress.percent}% · {project.progress.done} / {project.progress.total} steps
+                      {project.openTasks ? ` · ${project.openTasks} open tasks` : ""}
+                      {project.overdueCount ? (
+                        <span className="text-warning"> · {project.overdueCount} overdue</span>
+                      ) : null}
+                    </p>
+                  </Link>
+                  <div className="project-card-actions pointer-events-none absolute inset-x-0 bottom-0 flex translate-y-1 items-center justify-center gap-1.5 bg-gradient-to-t from-base-100 via-base-100/95 to-transparent px-3 pb-3 pt-8 opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
+                    <button
+                      className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
+                      type="button"
+                      disabled={busyId === project.id}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        startEdit(project);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
+                      type="button"
+                      disabled={duplicating === project.id || busyId === project.id}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void duplicate(project.id);
+                      }}
+                    >
+                      {duplicating === project.id ? "Copying…" : "Duplicate"}
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-xs border border-base-300 bg-base-100"
+                      type="button"
+                      disabled={busyId === project.id}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void setProjectStatus(project, project.status === "archived" ? "active" : "archived");
+                      }}
+                    >
+                      {project.status === "archived" ? "Restore" : "Archive"}
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-xs border border-error/30 bg-base-100 text-error"
+                      type="button"
+                      disabled={busyId === project.id}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void removeProject(project);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </>
+              )}
             </article>
           ))}
         </div>

@@ -200,6 +200,10 @@ def delete_user_data(db: Session, user_id: str) -> None:
 
 def update_project(db: Session, user_id: str, project_id: str, patch: dict) -> dict:
     project = owned_project(db, user_id, project_id)
+    if "title" in patch and patch["title"] is not None:
+        project.title = patch["title"]
+    if "description" in patch and patch["description"] is not None:
+        project.description = patch["description"]
     if "status" in patch and patch["status"] is not None:
         project.status = patch["status"]
     db.flush()

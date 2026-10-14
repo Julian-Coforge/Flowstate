@@ -8,9 +8,10 @@ type Props = {
   file: File | null;
   onChange: (file: File | null) => void;
   label?: string;
+  className?: string;
 };
 
-export default function DocumentUpload({ file, onChange, label = "Attach a brief or plan" }: Props) {
+export default function DocumentUpload({ file, onChange, label = "Attach a brief or plan", className }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -20,12 +21,11 @@ export default function DocumentUpload({ file, onChange, label = "Attach a brief
   }
 
   return (
-    <div className="mt-2">
-      <p className="text-sm text-base-content/70">{label}</p>
+    <div className={className ?? "mt-2"}>
       <div
         role="button"
         tabIndex={0}
-        className={`file-drop mt-1.5 w-full cursor-pointer text-left ${dragging ? "file-drop-active" : ""} ${file ? "file-drop-filled" : ""}`}
+        className={`file-drop w-full cursor-pointer text-left ${dragging ? "file-drop-active" : ""} ${file ? "file-drop-filled" : ""}`}
         onClick={() => inputRef.current?.click()}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -51,10 +51,10 @@ export default function DocumentUpload({ file, onChange, label = "Attach a brief
           const next = event.dataTransfer.files?.[0] ?? null;
           if (next) pick(next);
         }}
-        aria-label={file ? `Replace document ${file.name}` : "Choose a document"}
+        aria-label={file ? `Replace document ${file.name}` : label}
       >
         <span className="file-drop-icon" aria-hidden>
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" strokeLinejoin="round" />
             <path d="M14 3v5h5M12 11v6M9 14l3-3 3 3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -69,7 +69,7 @@ export default function DocumentUpload({ file, onChange, label = "Attach a brief
             </>
           ) : (
             <>
-              <span className="block text-sm font-medium text-base-content">Drop a file here, or browse</span>
+              <span className="block text-sm font-medium text-base-content">{label}</span>
               <span className="mt-0.5 block text-xs text-base-content/55">PDF, Word, Markdown, text, or CSV</span>
             </>
           )}

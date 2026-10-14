@@ -338,6 +338,7 @@ function Canvas({ projectId }: { projectId: string }) {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [tidying, setTidying] = useState(false);
+  const [toolsMinimized, setToolsMinimized] = useState(false);
   useEffect(() => {
     nodesRef.current = nodes;
     edgesRef.current = edges;
@@ -1360,38 +1361,10 @@ function Canvas({ projectId }: { projectId: string }) {
               Board
             </button>
           </div>
-          <button className="btn btn-primary btn-sm" type="button" onClick={() => void addStep()} title="N">
-            Add step
-          </button>
-          {view === "map" ? (
-            <>
-              <button
-                className={`btn btn-sm ${linkMode ? "btn-primary" : "btn-ghost"}`}
-                type="button"
-                title="L"
-                onClick={() => {
-                  setLinkMode((current) => !current);
-                  setLinkSource(null);
-                }}
-              >
-                Link
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void deleteSelection()} title="Delete">
-                Delete
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void undo()} disabled={!canUndo} title="⌘Z">
-                Undo
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void redo()} disabled={!canRedo} title="⇧⌘Z">
-                Redo
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => void tidy()} disabled={tidying || steps.length === 0} title="Tidy the map">
-                {tidying ? "Tidying…" : "Tidy map"}
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setHelp(true)} title="?">
-                Shortcuts
-              </button>
-            </>
+          {view === "board" ? (
+            <button className="btn btn-primary btn-sm" type="button" onClick={() => void addStep()} title="N">
+              Add step
+            </button>
           ) : null}
           <button className="btn btn-ghost btn-sm" type="button" onClick={() => void archiveProject()}>
             {project?.status === "archived" ? "Restore" : "Archive"}
@@ -1525,6 +1498,88 @@ function Canvas({ projectId }: { projectId: string }) {
                 onClose={closeWheel}
               />
             ) : null}
+            {view === "map" ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-3">
+                <div
+                  className={`pointer-events-auto flex max-w-full items-center overflow-hidden rounded-2xl border border-base-300 bg-base-100/95 shadow-lg backdrop-blur-md transition-[padding] duration-300 ease-out ${
+                    toolsMinimized ? "gap-0 p-1" : "gap-1 p-1.5"
+                  }`}
+                  role="toolbar"
+                  aria-label="Map tools"
+                >
+                  <div
+                    className={`grid min-w-0 transition-[grid-template-columns] duration-300 ease-out ${
+                      toolsMinimized ? "grid-cols-[0fr]" : "grid-cols-[1fr]"
+                    }`}
+                  >
+                    <div className="min-w-0 overflow-hidden">
+                      <div
+                        className={`flex max-w-[min(100vw-5.5rem,42rem)] items-center gap-1 overflow-x-auto whitespace-nowrap transition-[opacity,transform] duration-300 ease-out ${
+                          toolsMinimized ? "pointer-events-none -translate-y-1 opacity-0" : "translate-y-0 opacity-100"
+                        }`}
+                      >
+                        <button className="btn btn-primary btn-sm" type="button" onClick={() => void addStep()} title="N">
+                          Add step
+                        </button>
+                        <button
+                          className={`btn btn-sm ${linkMode ? "btn-primary" : "btn-ghost"}`}
+                          type="button"
+                          title="L"
+                          onClick={() => {
+                            setLinkMode((current) => !current);
+                            setLinkSource(null);
+                          }}
+                        >
+                          Link
+                        </button>
+                        <button className="btn btn-ghost btn-sm" type="button" onClick={() => void deleteSelection()} title="Delete">
+                          Delete
+                        </button>
+                        <button className="btn btn-ghost btn-sm" type="button" onClick={() => void undo()} disabled={!canUndo} title="⌘Z">
+                          Undo
+                        </button>
+                        <button className="btn btn-ghost btn-sm" type="button" onClick={() => void redo()} disabled={!canRedo} title="⇧⌘Z">
+                          Redo
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          onClick={() => void tidy()}
+                          disabled={tidying || steps.length === 0}
+                          title="Tidy the map"
+                        >
+                          {tidying ? "Tidying…" : "Tidy map"}
+                        </button>
+                        <button className="btn btn-ghost btn-sm" type="button" onClick={() => setHelp(true)} title="?">
+                          Shortcuts
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm shrink-0"
+                    aria-expanded={!toolsMinimized}
+                    aria-label={toolsMinimized ? "Show map tools" : "Hide map tools"}
+                    title={toolsMinimized ? "Show tools" : "Hide tools"}
+                    onClick={() => setToolsMinimized((current) => !current)}
+                  >
+                    {toolsMinimized ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                          <path d="M4 7h16M4 12h16M4 17h10" strokeLinecap="round" />
+                        </svg>
+                        Tools
+                      </span>
+                    ) : (
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                        <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {view === "map" && ready && steps.length === 0 ? (
               <div className="absolute inset-0 flex items-center justify-center p-6">
                 <div className="max-w-md rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
@@ -1539,26 +1594,32 @@ function Canvas({ projectId }: { projectId: string }) {
                         value={idea}
                         onChange={(event) => setGenerateDraft({ idea: event.target.value })}
                       />
-                      <DocumentUpload file={documentFile} onChange={(file) => setGenerateDraft({ documentFile: file })} />
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className={`btn btn-sm ${mode === "quick" ? "btn-primary" : "btn-ghost"}`}
-                          onClick={() => setGenerateDraft({ mode: "quick" })}
-                        >
-                          Quick
-                        </button>
-                        <button
-                          type="button"
-                          className={`btn btn-sm ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`}
-                          onClick={() => setGenerateDraft({ mode: "thinking" })}
-                        >
-                          Thinking
-                        </button>
-                        <button className="btn btn-primary btn-sm ml-auto" type="submit" disabled={generating}>
-                          {generating ? "Planning…" : "Generate a plan"}
-                        </button>
+                      <div className="flex items-end gap-2">
+                        <div className="flex shrink-0 flex-col gap-1">
+                          <button
+                            type="button"
+                            className={`btn btn-xs ${mode === "quick" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setGenerateDraft({ mode: "quick" })}
+                          >
+                            Quick
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-xs ${mode === "thinking" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setGenerateDraft({ mode: "thinking" })}
+                          >
+                            Thinking
+                          </button>
+                        </div>
+                        <DocumentUpload
+                          className="min-w-0 flex-1"
+                          file={documentFile}
+                          onChange={(file) => setGenerateDraft({ documentFile: file })}
+                        />
                       </div>
+                      <button className="btn btn-primary btn-sm" type="submit" disabled={generating}>
+                        {generating ? "Planning…" : "Generate a plan"}
+                      </button>
                     </form>
                   ) : null}
                 </div>
